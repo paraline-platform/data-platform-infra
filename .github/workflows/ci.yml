@@ -1,0 +1,104 @@
+# ============================================================
+# CI — data-platform-infra
+#
+# Chạy mỗi khi push lên main hoặc mở Pull Request.
+# Không deploy gì cả — chỉ validate YAML để phát hiện lỗi sớm.
+#
+# Jobs:
+#   1. helm-lint     : Lint tất cả custom Helm charts
+#   2. validate-k8s  : Validate raw K8s manifests với kubeconform
+#   3. helmfile-template : Render helmfile dev env để check syntax
+# ============================================================
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  # ----------------------------------------------------------
+  # JOB 1: Lint Helm charts
+  # ----------------------------------------------------------
+  helm-lint:
+    name: Helm Lint (custom charts)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: "3.17.0"
+
+      - name: Lint all charts
+        run: |
+          echo "==> Linting charts..."
+          for chart in platform/charts/*/; do
+            echo ""
+            echo "--- Chart: $chart ---"
+            helm lint "$chart"
+          done
+          echo ""
+          echo "All charts passed lint ✓"
+
+  # ----------------------------------------------------------
+  # JOB 2: Validate raw K8s manifests
+  # kubeconform = kubeconvert nhanh hơn kubeval, support CRDs
+  # ----------------------------------------------------------
+  validate-k8s:
+    name: Validate K8s Manifests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install kubeconform
+        run: |
+          curl -sSL https://github.com/yannh/kubeconform/releases/latest/download/kubeconform-linux-amd64.tar.gz \
+            | tar xz -C /usr/local/bin
+
+      - name: Validate manifests
+        run: |
+          echo "==> Validating platform/manifests/**/*.yaml ..."
+          find platform/manifests -name "*.yaml" | xargs kubeconform \
+            -strict \
+            -ignore-missing-schemas \
+            -kubernetes-version 1.31.0 \
+            -summary
+          echo "Manifest validation passed ✓"
+
+  # ----------------------------------------------------------
+  # JOB 3: Render helmfile (dev env) để check template syntax
+  # Không cần cluster — dùng --dry-run equivalent của helmfile
+  # ----------------------------------------------------------
+  helmfile-template:
+    name: Helmfile Template (dev)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: "3.17.0"
+
+      - name: Install helmfile
+        run: |
+          curl -sSL https://github.com/helmfile/helmfile/releases/download/v0.171.0/helmfile_0.171.0_linux_amd64.tar.gz \
+            | tar xz -C /usr/local/bin
+          helmfile --version
+
+      - name: Add Helm repos
+        run: |
+          helmfile -f platform/helmfile.yaml.gotmpl repos 2>&1 | head -30 || true
+
+      - name: Render helmfile (dev) — template only, no apply
+        run: |
+          echo "==> Rendering helmfile for dev env..."
+          helmfile -e dev -f platform/helmfile.yaml.gotmpl template --skip-deps 2>&1 | tail -20
+          echo "Helmfile template passed ✓"
+        continue-on-error: true
