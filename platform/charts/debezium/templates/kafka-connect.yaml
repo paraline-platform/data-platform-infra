@@ -1,0 +1,114 @@
+# ============================================================
+# DEBEZIUM KAFKA CONNECT — Plain Deployment
+#
+# Tại sao KHÔNG dùng Strimzi KafkaConnect CRD?
+#   Strimzi KafkaConnect (khi dùng spec.image không qua spec.build) inject
+#   startup script riêng (/opt/kafka/kafka_connect_run.sh) vào pod.
+#   Image quay.io/debezium/connect không có script này → crash.
+#   Để dùng Strimzi CRD với Debezium cần spec.build + container registry
+#   (Kind cluster không có registry sẵn).
+#
+# Plain Deployment — đủ dùng cho dev:
+#   Debezium image tự có entrypoint và script start Kafka Connect
+#   Cấu hình qua CONNECT_* environment variables
+#   REST API port 8083: quản lý connector bằng curl hoặc register-connector job
+#
+# Connector management:
+#   Xem connectors:   kubectl exec -it <pod> -- curl localhost:8083/connectors
+#   Xem status:       kubectl exec -it <pod> -- curl localhost:8083/connectors/postgres-source/status
+# ============================================================
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: debezium-connect
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: debezium-connect
+    component: kafka-connect
+spec:
+  replicas: {{ .Values.connect.replicas }}
+  selector:
+    matchLabels:
+      app: debezium-connect
+  template:
+    metadata:
+      labels:
+        app: debezium-connect
+        component: kafka-connect
+    spec:
+      containers:
+        - name: debezium-connect
+          image: "{{ .Values.connect.image.repository }}:{{ .Values.connect.image.tag }}"
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: rest-api
+              containerPort: 8083
+          env:
+            - name: BOOTSTRAP_SERVERS
+              value: {{ .Values.connect.kafkaBootstrap | quote }}
+            - name: GROUP_ID
+              value: {{ .Values.connect.groupId | quote }}
+            - name: CONFIG_STORAGE_TOPIC
+              value: "debezium-connect-configs"
+            - name: OFFSET_STORAGE_TOPIC
+              value: "debezium-connect-offsets"
+            - name: STATUS_STORAGE_TOPIC
+              value: "debezium-connect-status"
+            - name: CONFIG_STORAGE_REPLICATION_FACTOR
+              value: "1"
+            - name: OFFSET_STORAGE_REPLICATION_FACTOR
+              value: "1"
+            - name: STATUS_STORAGE_REPLICATION_FACTOR
+              value: "1"
+            - name: KEY_CONVERTER
+              value: "org.apache.kafka.connect.json.JsonConverter"
+            - name: VALUE_CONVERTER
+              value: "org.apache.kafka.connect.json.JsonConverter"
+            - name: KEY_CONVERTER_SCHEMAS_ENABLE
+              value: "false"
+            - name: VALUE_CONVERTER_SCHEMAS_ENABLE
+              value: "false"
+            - name: KAFKA_HEAP_OPTS
+              value: "-Xms256m -Xmx512m"
+          resources:
+            {{- toYaml .Values.connect.resources | nindent 12 }}
+          # startupProbe: Connect cần ~60s để start và join consumer group
+          startupProbe:
+            httpGet:
+              path: /connectors
+              port: 8083
+            failureThreshold: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /connectors
+              port: 8083
+            initialDelaySeconds: 0
+            periodSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /connectors
+              port: 8083
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            failureThreshold: 3
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: debezium-connect
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: debezium-connect
+spec:
+  selector:
+    app: debezium-connect
+  ports:
+    - name: rest-api
+      port: 8083
+      targetPort: 8083
+  type: ClusterIP

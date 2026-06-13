@@ -1,0 +1,91 @@
+{{/*
+  Lookup the active resource profile using Helm's `index` function.
+
+  index .Values.profiles .Values.profile
+    → .Values.profiles = map of all profiles (small/medium/large/xlarge)
+    → .Values.profile  = active profile name (e.g. "small")
+    → $profile         = the profile object with driver/executor sub-keys
+
+  Ví dụ khi --set profile=medium:
+    $profile.driver.cores     = 2
+    $profile.executor.memory  = "2g"
+*/}}
+{{- $profile := index .Values.profiles .Values.profile }}
+
+apiVersion: sparkoperator.k8s.io/v1beta2
+kind: SparkApplication
+metadata:
+  name: {{ .Values.name }}
+  namespace: {{ .Values.namespace }}
+spec:
+  type: {{ .Values.type }}
+  mode: {{ .Values.mode }}
+  image: {{ .Values.image | quote }}
+  imagePullPolicy: {{ .Values.imagePullPolicy }}
+
+  {{- if .Values.mainClass }}
+  mainClass: {{ .Values.mainClass | quote }}
+  {{- end }}
+
+  mainApplicationFile: {{ .Values.mainApplicationFile | quote }}
+
+  {{- if .Values.arguments }}
+  arguments:
+    {{- toYaml .Values.arguments | nindent 4 }}
+  {{- end }}
+
+  sparkVersion: {{ .Values.sparkVersion | quote }}
+
+  restartPolicy:
+    type: {{ .Values.restartPolicy.type }}
+
+  {{- if .Values.sparkConf }}
+  sparkConf:
+    {{- toYaml .Values.sparkConf | nindent 4 }}
+  {{- end }}
+
+  {{- if .Values.volumes }}
+  volumes:
+    {{- toYaml .Values.volumes | nindent 4 }}
+  {{- end }}
+
+  driver:
+    # Resources từ profile được chọn
+    cores: {{ $profile.driver.cores }}
+    coreLimit: {{ $profile.driver.coreLimit | quote }}
+    memory: {{ $profile.driver.memory | quote }}
+    serviceAccount: {{ .Values.serviceAccount }}
+    labels:
+      version: {{ .Values.sparkVersion | quote }}
+      profile: {{ .Values.profile | quote }}
+
+    {{- with .Values.driverExtras }}
+    {{- if .initContainers }}
+    initContainers:
+      {{- toYaml .initContainers | nindent 6 }}
+    {{- end }}
+    {{- if .volumeMounts }}
+    volumeMounts:
+      {{- toYaml .volumeMounts | nindent 6 }}
+    {{- end }}
+    {{- end }}
+
+  executor:
+    instances: {{ $profile.executor.instances }}
+    cores: {{ $profile.executor.cores }}
+    coreLimit: {{ $profile.executor.coreLimit | quote }}
+    memory: {{ $profile.executor.memory | quote }}
+    labels:
+      version: {{ .Values.sparkVersion | quote }}
+      profile: {{ .Values.profile | quote }}
+
+    {{- with .Values.executorExtras }}
+    {{- if .initContainers }}
+    initContainers:
+      {{- toYaml .initContainers | nindent 6 }}
+    {{- end }}
+    {{- if .volumeMounts }}
+    volumeMounts:
+      {{- toYaml .volumeMounts | nindent 6 }}
+    {{- end }}
+    {{- end }}

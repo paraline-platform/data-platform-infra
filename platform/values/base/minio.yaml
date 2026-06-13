@@ -1,0 +1,49 @@
+# MinIO Base Values — dùng chung cho mọi môi trường
+# Chart: minio/minio v5.4.0 (official MinIO chart)
+# Image: quay.io/minio/minio:RELEASE.2024-12-18T13-15-44Z (luôn available)
+
+# -----------------------------------------------------------------
+# BUCKETS — Tạo tự động khi MinIO khởi động lần đầu
+# -----------------------------------------------------------------
+buckets:
+  - name: landing         # Raw data từ NiFi, Debezium
+    policy: none
+    purge: false
+  - name: warehouse       # Apache Iceberg tables (Raw Vault, Business Vault, Info Mart)
+    policy: none
+    purge: false
+  - name: spark-logs      # Spark driver/executor event logs
+    policy: none
+    purge: false
+  - name: airflow-logs    # Airflow task logs
+    policy: none
+    purge: false
+  - name: dbt-artifacts   # dbt compiled SQL, docs, manifest.json
+    policy: none
+    purge: false
+
+# -----------------------------------------------------------------
+# SERVICE PORTS (không thay đổi theo env)
+# -----------------------------------------------------------------
+service:
+  port: "9000"      # S3 API — Spark, Airflow, dbt connect vào đây
+
+consoleService:
+  port: "9001"      # Web Console UI
+
+# -----------------------------------------------------------------
+# HEALTH CHECKS
+# -----------------------------------------------------------------
+livenessProbe:
+  enabled: true
+  initialDelaySeconds: 30
+  periodSeconds: 15
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+readinessProbe:
+  enabled: true
+  initialDelaySeconds: 20
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 3

@@ -1,0 +1,6 @@
+apiVersion: v2
+name: spark-thrift-server
+description: Spark Thrift Server (HiveServer2) — SQL gateway cho dbt
+type: application
+version: 0.1.0
+appVersion: "3.5.3"

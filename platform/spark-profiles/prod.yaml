@@ -1,0 +1,56 @@
+# ============================================================
+# SPARK-PROFILES/PROD.YAML — T-shirt sizing cho môi trường PROD
+# ============================================================
+# Prod: multi-node cluster với nhiều tài nguyên hơn
+# → instances cao hơn để tận dụng parallelism
+# → memory lớn hơn để xử lý dataset thực tế
+# ============================================================
+
+profiles:
+  # small: debug prod, validate pipeline với sample data
+  small:
+    driver:
+      cores: 2
+      coreLimit: "2"
+      memory: "2g"
+    executor:
+      instances: 4
+      cores: 2
+      coreLimit: "2"
+      memory: "4g"
+
+  # medium: ETL hàng ngày, batch processing
+  medium:
+    driver:
+      cores: 4
+      coreLimit: "4"
+      memory: "4g"
+    executor:
+      instances: 8
+      cores: 4
+      coreLimit: "4"
+      memory: "8g"
+
+  # large: xử lý toàn bộ dataset, complex joins
+  large:
+    driver:
+      cores: 8
+      coreLimit: "8"
+      memory: "8g"
+    executor:
+      instances: 16
+      cores: 8
+      coreLimit: "8"
+      memory: "16g"
+
+  # xlarge: ML training, full data reprocessing
+  xlarge:
+    driver:
+      cores: 16
+      coreLimit: "16"
+      memory: "16g"
+    executor:
+      instances: 32
+      cores: 16
+      coreLimit: "16"
+      memory: "32g"

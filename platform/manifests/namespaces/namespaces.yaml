@@ -1,0 +1,98 @@
+# Namespaces cho Data Lakehouse Platform
+# Convention: mỗi layer có 1 namespace riêng
+# Lý do:
+#   - Resource isolation: quotas/limits riêng
+#   - Security: RBAC policies riêng
+#   - Maintainability: dễ xóa 1 layer mà không ảnh hưởng layer khác
+#   - Monitoring: metrics rõ ràng theo layer
+
+---
+# Layer 01 + 03: Thu Thập & Xử Lý (Kafka dùng chung vì Debezium publish vào Kafka)
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: data-ingestion
+  labels:
+    platform: data-lakehouse
+    layer: "01-ingestion"
+    environment: dev  # Sẽ được thay bằng Kustomize khi deploy
+
+---
+# Layer 02: Lưu Trữ (MinIO)
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: data-storage
+  labels:
+    platform: data-lakehouse
+    layer: "02-storage"
+
+---
+# Layer 03: Xử Lý (Spark)
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: data-processing
+  labels:
+    platform: data-lakehouse
+    layer: "03-processing"
+
+---
+# Layer 04: Mô Hình Dữ Liệu (dbt, Trino)
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: data-modeling
+  labels:
+    platform: data-lakehouse
+    layer: "04-modeling"
+
+---
+# Layer 05: Quản Trị (DataHub)
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: data-governance
+  labels:
+    platform: data-lakehouse
+    layer: "05-governance"
+
+---
+# Layer 06: Liên Kết & Thay Vận (Airflow)
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: data-orchestration
+  labels:
+    platform: data-lakehouse
+    layer: "06-orchestration"
+
+---
+# Layer 07: Vận Hành (Prometheus, Grafana, OpenObserve)
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: data-observability
+  labels:
+    platform: data-lakehouse
+    layer: "07-observability"
+
+---
+# Layer 08: Dịch Vụ AI (Dify, vLLM, LangFuse)
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: data-ai
+  labels:
+    platform: data-lakehouse
+    layer: "08-ai"
+
+---
+# Infrastructure: Ingress Controller, cert-manager, shared tools
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: data-infra
+  labels:
+    platform: data-lakehouse
+    layer: "00-infra"

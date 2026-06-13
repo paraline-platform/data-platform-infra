@@ -1,0 +1,283 @@
+# ============================================================
+# HELMFILE.YAML.GOTMPL — Khai báo toàn bộ platform releases
+# ============================================================
+# Đuôi .gotmpl bắt buộc từ Helmfile v1 khi dùng template syntax .Values
+#
+# Luồng hoạt động:
+#   environments/*.yaml  →  .Values  →  values/env/*.gotmpl  →  Helm chart
+#
+# Cách dùng (từ thư mục k8s-paraline/):
+#   Deploy toàn bộ:      ./scripts/deploy.sh dev
+#   Deploy 1 layer:      ./scripts/deploy.sh dev 02-storage
+#   Xem diff:            ./scripts/deploy.sh dev "" diff
+#   Xóa toàn bộ:         ./scripts/deploy.sh dev "" destroy
+# ============================================================
+
+# Document 1: environments (PHẢI tách riêng bằng ---)
+environments:
+  dev:
+    values:
+      - environments/dev.yaml
+      - spark-profiles/dev.yaml     # → .Values.profiles available in all gotmpl templates
+  uat:
+    values:
+      - environments/uat.yaml
+      - spark-profiles/prod.yaml    # uat dùng prod profiles (resource đủ lớn)
+  prod:
+    values:
+      - environments/prod.yaml
+      - spark-profiles/prod.yaml
+
+---
+# Document 2: repositories + helmDefaults + releases
+
+repositories:
+  - name: bitnami
+    url: https://charts.bitnami.com/bitnami
+  - name: strimzi
+    url: https://strimzi.io/charts/
+  - name: spark-operator
+    url: https://kubeflow.github.io/spark-operator
+  - name: airflow
+    url: https://airflow.apache.org
+  - name: datahub
+    url: https://helm.datahubproject.io/
+  - name: apache-nifi
+    url: https://cetic.github.io/helm-charts
+  - name: projectnessie
+    url: https://charts.projectnessie.org
+  - name: prometheus-community
+    url: https://prometheus-community.github.io/helm-charts
+  - name: grafana
+    url: https://grafana.github.io/helm-charts
+  - name: ingress-nginx
+    url: https://kubernetes.github.io/ingress-nginx
+
+helmDefaults:
+  wait: true
+  timeout: 600
+  atomic: true
+  cleanupOnFail: true
+
+releases:
+
+  # ==========================================================
+  # LAYER 00: INFRASTRUCTURE — Ingress Controller
+  # ==========================================================
+  - name: ingress-nginx
+    namespace: data-infra
+    chart: ingress-nginx/ingress-nginx
+    version: "4.10.0"
+    labels:
+      layer: "00-infra"
+    # installed: đọc từ environments/*.yaml
+    # dev  → global.ingress.enabled: false → bỏ qua, dùng NodePort
+    # prod → global.ingress.enabled: true  → deploy ingress-nginx
+    installed: {{ .Values.global.ingress.enabled }}
+    values:
+      - values/base/ingress-nginx.yaml
+
+  # ==========================================================
+  # LAYER 02: STORAGE — MinIO
+  # ==========================================================
+  - name: minio
+    namespace: data-storage
+    chart: minio/minio
+    version: "5.4.0"
+    labels:
+      layer: "02-storage"
+    values:
+      - values/base/minio.yaml               # Config tĩnh (buckets, ports)
+      - values/env/minio.yaml.gotmpl         # Config động từ environments/*.yaml
+
+  # ==========================================================
+  # LAYER 01+03: MESSAGING — Kafka (Strimzi Operator)
+  # ==========================================================
+  - name: strimzi-operator
+    namespace: data-ingestion
+    chart: strimzi/strimzi-kafka-operator
+    version: "0.51.0"
+    labels:
+      layer: "01-ingestion"
+    values:
+      - values/base/strimzi-operator.yaml
+
+  - name: kafka-cluster
+    namespace: data-ingestion
+    chart: ./charts/kafka-cluster
+    labels:
+      layer: "01-ingestion"
+    needs:
+      - data-ingestion/strimzi-operator
+    values:
+      - values/base/kafka-cluster.yaml
+      - values/env/kafka-cluster.yaml.gotmpl
+
+  # ==========================================================
+  # LAYER 03: PROCESSING — Spark Operator
+  # ==========================================================
+  - name: spark-operator
+    namespace: data-processing
+    chart: spark-operator/spark-operator
+    version: "2.5.0"
+    labels:
+      layer: "03-processing"
+    # Spark Operator image lớn (~200MB từ ghcr.io), pull lần đầu chậm
+    # Tăng timeout riêng để tránh rollback sớm
+    timeout: 900
+    values:
+      - values/base/spark-operator.yaml
+      - values/env/spark-operator.yaml.gotmpl
+
+  # ==========================================================
+  # LAYER 04: LAKEHOUSE — Nessie (Iceberg Catalog)
+  # ==========================================================
+  # Nessie = REST catalog cho Apache Iceberg tables
+  # Spark và dbt kết nối qua: http://nessie.data-modeling.svc:19120/api/v2
+  # dev: IN_MEMORY (metadata mất khi restart, data vẫn còn trong MinIO)
+  # prod: ROCKSDB (persistent, cần PVC)
+  - name: nessie
+    namespace: data-modeling
+    chart: projectnessie/nessie
+    version: "0.107.9"
+    labels:
+      layer: "04-lakehouse"
+      component: nessie
+    values:
+      - values/base/nessie.yaml
+      - values/env/nessie.yaml.gotmpl
+
+  # ==========================================================
+  # LAYER 04: LAKEHOUSE — Spark Thrift Server (dbt SQL gateway)
+  # ==========================================================
+  # HiveServer2-compatible Spark SQL server, dbt kết nối qua thrift:10000
+  # dev:  local[2] — 1 pod, không executor
+  # uat/prod: k8s:// — driver pod + executor pods (Dynamic Allocation)
+  - name: spark-thrift-server
+    namespace: data-modeling
+    chart: ./charts/spark-thrift-server
+    labels:
+      layer: "04-lakehouse"
+      component: spark-thrift-server
+    # wait: false vì readinessProbe cần ~90s (JARs download + HiveServer2 init)
+    wait: false
+    atomic: false
+    timeout: 600
+    needs:
+      - data-modeling/nessie
+      - data-storage/minio
+    values:
+      - values/base/spark-thrift-server.yaml
+      - values/env/spark-thrift-server.yaml.gotmpl
+
+  # ==========================================================
+  # LAYER 01: INGESTION — Debezium CDC
+  # ==========================================================
+  # Chart: local (./charts/debezium)
+  # Components: demo-postgres + KafkaConnect (Strimzi) + KafkaConnector
+  # KafkaConnect dùng image quay.io/debezium/connect:3.0.0.Final
+  # (pre-built, không cần container registry)
+  - name: debezium
+    namespace: data-ingestion
+    chart: ./charts/debezium
+    labels:
+      layer: "01-ingestion"
+      component: debezium
+    wait: false
+    atomic: false
+    timeout: 600
+    needs:
+      - data-ingestion/kafka-cluster
+    values:
+      - values/base/debezium.yaml
+      - values/env/debezium.yaml.gotmpl
+
+  # ==========================================================
+  # LAYER 01: INGESTION — NiFi
+  # ==========================================================
+  # Chart: cetic community chart (bitnami đã xóa NiFi chart)
+  # App:   Apache NiFi 1.23.2 (ổn định, widely used)
+  # Auth:  Single User + HTTPS (self-signed cert)
+  # UI:    https://localhost:30800/nifi  (dev, NodePort)
+  - name: nifi
+    namespace: data-ingestion
+    chart: apache-nifi/nifi
+    version: "1.2.1"
+    labels:
+      layer: "01-ingestion"
+      component: nifi
+    # NiFi lần đầu start mất 3-5 phút (generate SSL certs + init flow)
+    # wait: false → Helm apply xong là return, không đợi pod Ready
+    # atomic: false → không rollback khi timeout
+    # Kiểm tra thủ công: kubectl get pods -n data-ingestion -w
+    wait: false
+    atomic: false
+    timeout: 900
+    needs:
+      - data-storage/minio
+      - data-ingestion/kafka-cluster
+    values:
+      - values/base/nifi.yaml
+      - values/env/nifi.yaml.gotmpl
+
+  # ==========================================================
+  # LAYER 06: ORCHESTRATION — Airflow
+  # ==========================================================
+  - name: airflow
+    namespace: data-orchestration
+    chart: airflow/airflow
+    version: "1.14.0"
+    labels:
+      layer: "06-orchestration"
+    # wait: false — Airflow chart dùng post-install hook (migrateDatabaseJob) để chạy
+    # "airflow db migrate". Nếu wait=true, Helm sẽ chờ Deployments ready TRƯỚC KHI
+    # chạy hook → deadlock: pods chờ migration, migration chờ pods ready.
+    # Giải pháp: wait=false → Helm apply xong là return, hook tự chạy, pods tự đợi.
+    wait: false
+    atomic: false
+    timeout: 1800
+    needs:
+      - data-storage/minio
+      - data-ingestion/kafka-cluster
+    values:
+      - values/base/airflow.yaml
+      - values/env/airflow.yaml.gotmpl
+
+  # ==========================================================
+  # LAYER 05: GOVERNANCE — DataHub
+  # ==========================================================
+  - name: datahub-prerequisites
+    namespace: data-governance
+    chart: datahub/datahub-prerequisites
+    labels:
+      layer: "05-governance"
+    values:
+      - values/base/datahub-prerequisites.yaml
+
+  - name: datahub
+    namespace: data-governance
+    chart: datahub/datahub
+    labels:
+      layer: "05-governance"
+    needs:
+      - data-governance/datahub-prerequisites
+    values:
+      - values/base/datahub.yaml
+      - values/env/datahub.yaml.gotmpl
+
+  # ==========================================================
+  # LAYER 07: OBSERVABILITY — Prometheus + Grafana
+  # ==========================================================
+  - name: kube-prometheus-stack
+    namespace: data-observability
+    chart: prometheus-community/kube-prometheus-stack
+    version: "60.0.0"
+    labels:
+      layer: "07-observability"
+    values:
+      - values/base/prometheus-stack.yaml
+      - values/env/prometheus-stack.yaml.gotmpl
+
+  # ==========================================================
+  # LAYER 08: AI SERVICES — thêm sau khi các layer trên stable
+  # ==========================================================

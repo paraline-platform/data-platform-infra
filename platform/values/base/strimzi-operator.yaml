@@ -1,0 +1,24 @@
+# Strimzi Kafka Operator — Base Values
+# Chart: strimzi/strimzi-kafka-operator v0.51.0
+
+# replicas: số lượng operator pods
+# 1 là đủ — operator không xử lý data, chỉ reconcile K8s resources
+replicas: 1
+
+# watchNamespaces: operator chỉ watch CRDs trong namespace này
+# [] = watch ALL namespaces (không nên dùng prod — quá rộng)
+# ["data-ingestion"] = chỉ watch namespace của chúng ta
+watchNamespaces:
+  - data-ingestion
+
+# Operator pod resources — nhỏ là đủ
+resources:
+  requests:
+    cpu: "200m"
+    memory: "384Mi"
+  limits:
+    cpu: "500m"
+    memory: "512Mi"
+
+# logLevel: INFO (default), DEBUG (khi cần debug)
+logLevel: INFO

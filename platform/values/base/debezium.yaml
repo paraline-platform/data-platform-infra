@@ -1,0 +1,24 @@
+# ============================================================
+# DEBEZIUM BASE VALUES — dùng chung mọi môi trường
+# Chart: ./charts/debezium (local chart)
+# ============================================================
+
+connect:
+  image:
+    repository: quay.io/debezium/connect
+    tag: "3.0.0.Final"
+  groupId: "debezium-connect-cluster"
+
+connector:
+  name: "postgres-source"
+  tableInclude: "public.orders,public.products"
+  topicPrefix: "demo-db"
+  snapshotMode: "initial"
+
+demoPostgres:
+  image:
+    repository: postgres
+    tag: "16"
+    pullPolicy: IfNotPresent
+  database: demodb
+  user: postgres

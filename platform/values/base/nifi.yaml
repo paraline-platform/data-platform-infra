@@ -1,0 +1,88 @@
+# ============================================================
+# NIFI BASE VALUES — dùng chung mọi môi trường
+# Chart: apache-nifi/nifi v1.2.1 (app: NiFi 1.23.2)
+# Image: apache/nifi:1.23.2 (Docker Hub, stable)
+# ============================================================
+
+image:
+  repository: apache/nifi
+  tag: "1.23.2"
+  pullPolicy: IfNotPresent
+
+replicaCount: 1
+
+sts:
+  podManagementPolicy: Parallel
+  AntiAffinity: soft
+  # startupProbe: NiFi mất 2-4 phút để start lần đầu (generate SSL certs, init flow)
+  startupProbe:
+    enabled: true
+    failureThreshold: 60  # 60 × 10s = 600s startup window
+    periodSeconds: 10
+
+# -----------------------------------------------------------------
+# NiFi PROPERTIES
+# Các giá trị env-specific (webProxyHost, sensitiveKey) ở env template
+# -----------------------------------------------------------------
+properties:
+  isNode: false
+  clusterPort: 6007
+  siteToSite:
+    port: 10000
+  safetyValve:
+    nifi.web.http.network.interface.default: eth0
+    nifi.web.http.network.interface.lo: lo
+
+# -----------------------------------------------------------------
+# AUTHENTICATION — Single User (HTTPS)
+# username / password được override từ env template
+# -----------------------------------------------------------------
+auth:
+  SSL:
+    keystorePasswd: changeMeNiFiKeystore
+    truststorePasswd: changeMeNiFiTruststore
+  singleUser:
+    username: admin
+    password: adminpassword123    # placeholder, override tại env template
+  clientAuth:
+    enabled: false
+  ldap:
+    enabled: false
+  oidc:
+    enabled: false
+
+# -----------------------------------------------------------------
+# STORAGE — dùng 1 PVC duy nhất (subPath) để đơn giản hóa
+# Dung lượng được set tại env template
+# -----------------------------------------------------------------
+persistence:
+  enabled: true
+  accessModes: [ReadWriteOnce]
+  subPath:
+    enabled: true
+    name: data
+    size: 8Gi  # override tại env template
+
+# -----------------------------------------------------------------
+# HEADLESS SERVICE (cluster communication, không thay đổi)
+# -----------------------------------------------------------------
+headless:
+  type: ClusterIP
+  annotations:
+    service.alpha.kubernetes.io/tolerate-unready-endpoints: "true"
+
+# log sidecar — phải >= LimitRange minimum (data-ingestion: min memory 16Mi)
+logresources:
+  requests:
+    cpu: 10m
+    memory: 20Mi
+  limits:
+    cpu: 50m
+    memory: 64Mi
+
+# ZooKeeper, LDAP, Prometheus — tắt cho dev, bật theo nhu cầu
+zookeeper:
+  enabled: false
+
+openldap:
+  enabled: false

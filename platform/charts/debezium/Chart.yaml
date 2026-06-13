@@ -1,0 +1,7 @@
+apiVersion: v2
+name: debezium
+description: CDC stack — demo PostgreSQL source + Strimzi KafkaConnect + KafkaConnector
+type: application
+version: 0.1.0
+# Requires: strimzi-operator + kafka-cluster phải deploy trước
+# Strimzi operator quản lý KafkaConnect lifecycle qua CRD

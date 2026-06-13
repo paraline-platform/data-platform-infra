@@ -1,0 +1,31 @@
+# Spark Operator — Base Values (dùng chung mọi môi trường)
+# Chart: spark-operator/spark-operator v2.5.0
+
+# Controller: component chính — watch SparkApplication CRDs và tạo pods
+controller:
+  replicas: 1   # 1 là đủ (operator không xử lý data, chỉ reconcile)
+
+  # Spark Operator v2.x dùng leader election khi có nhiều replicas
+  # Dev: 1 replica → không cần leader election
+  leaderElection:
+    enable: false
+
+# Webhook: mutating webhook — inject config vào Spark pods
+# PHẢI enable để Driver pod có quyền tạo Executor pods
+webhook:
+  enable: true
+  replicas: 1
+  # Webhook dùng TLS certificate để K8s API server gọi vào
+  # Operator tự generate certificate khi không dùng cert-manager
+
+# spark: config namespace nơi Spark jobs chạy
+spark:
+  # jobNamespaces: operator chỉ quản lý SparkApplication trong namespace này
+  # [] = watch tất cả namespaces (không nên cho prod)
+  jobNamespaces:
+    - data-processing
+
+# prometheus: tích hợp metrics (bật ở M8)
+prometheus:
+  metrics:
+    enable: false   # Bật khi có Prometheus

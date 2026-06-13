@@ -1,0 +1,66 @@
+# ============================================================
+# SPARK-PROFILES/DEV.YAML — T-shirt sizing cho môi trường DEV
+# ============================================================
+# Tại sao tách file này khỏi environments/dev.yaml?
+#   → spark.operator config (resources cho pod operator) thuộc về Helmfile
+#   → spark.profiles (sizing cho jobs) thuộc về scripts/run-spark-job.sh
+#   → Hai concern khác nhau → tách file → rõ ràng hơn
+#
+# Dev constraints: Kind cluster 3 nodes, mỗi node ~4 CPU / 8Gi RAM
+# → small/medium dùng được thoải mái
+# → large/xlarge: deploy được nhưng có thể ảnh hưởng các service khác
+# ============================================================
+
+profiles:
+  # small: workload nhẹ — test, debug, prototype
+  # Tổng tài nguyên: driver 1C/512m + executor 1C/512m = 2C/1Gi
+  small:
+    driver:
+      cores: 1
+      coreLimit: "1"
+      memory: "512m"
+    executor:
+      instances: 1
+      cores: 1
+      coreLimit: "1"
+      memory: "512m"
+
+  # medium: ETL nhỏ, aggregation đơn giản
+  # Tổng: driver 2C/1Gi + executor 2×2C/2Gi = 6C/5Gi
+  medium:
+    driver:
+      cores: 2
+      coreLimit: "2"
+      memory: "1g"
+    executor:
+      instances: 2
+      cores: 2
+      coreLimit: "2"
+      memory: "2g"
+
+  # large: transform phức tạp, join nhiều dataset
+  # Tổng: driver 2C/2Gi + executor 2×2C/4Gi = 6C/10Gi — nặng cho dev
+  large:
+    driver:
+      cores: 2
+      coreLimit: "2"
+      memory: "2g"
+    executor:
+      instances: 2
+      cores: 2
+      coreLimit: "2"
+      memory: "4g"
+
+  # xlarge: ML training, xử lý dataset lớn
+  # Dev: dùng thận trọng — có thể starve các pod khác
+  # Tổng: driver 4C/4Gi + executor 2×4C/8Gi = 12C/20Gi
+  xlarge:
+    driver:
+      cores: 4
+      coreLimit: "4"
+      memory: "4g"
+    executor:
+      instances: 2
+      cores: 4
+      coreLimit: "4"
+      memory: "8g"

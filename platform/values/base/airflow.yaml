@@ -1,0 +1,171 @@
+# ============================================================
+# AIRFLOW BASE CONFIG — Apache Airflow Helm Chart v1.14.0
+# ============================================================
+# Giá trị TĨNH — không thay đổi theo env.
+# Giá trị ĐỘNG → values/env/airflow.yaml.gotmpl
+#
+# Executor: KubernetesExecutor
+#   - Mỗi task = 1 pod riêng, tự scale, không cần idle workers
+#   - Scheduler tạo pod → task chạy → pod tự xóa
+#
+# DAG delivery: PVC (ReadWriteOnce cho dev, ReadWriteMany cho prod)
+#   - K8s tự schedule đúng node qua PV node affinity
+#   - Không hardcode node hostname
+# ============================================================
+
+executor: "KubernetesExecutor"
+
+images:
+  airflow:
+    repository: apache/airflow
+    tag: "2.9.2"
+    pullPolicy: IfNotPresent
+  # pip install providers ~3-5m → migration job phải xong sau đó
+  # Default 60s không đủ; 600s đủ margin an toàn
+  migrationsWaitTimeout: 600
+
+# Extra providers cài lúc pod start (~3-5 phút lần đầu, sau có pip cache)
+# PROD: bỏ _pip_additional_requirements → build custom image với providers đã cài sẵn
+#   → giảm startup time từ ~5m xuống ~30s
+_pip_additional_requirements: >-
+  apache-airflow-providers-cncf-kubernetes>=8.0.0
+  apache-airflow-providers-amazon>=8.0.0
+  apache-airflow-providers-apache-kafka>=1.3.0
+  boto3>=1.34.0
+
+# Fernet key để mã hóa connection passwords trong metadata DB
+# PROD: tạo key riêng và lưu vào K8s Secret:
+#   python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+#   kubectl create secret generic airflow-fernet --from-literal=fernet-key=<key> -n data-orchestration
+fernetKey: "t-KbNsHbRG5-w7-nPUKx9JYX7HoY0O3C5BLvHfEbKxw="
+
+# --- Database ---
+postgresql:
+  enabled: true
+  auth:
+    username: airflow
+    database: airflow
+    # password: set in values/env/airflow.yaml.gotmpl
+  image:
+    # Bitnami xóa các tag cũ (16.x) khỏi Docker Hub — chỉ còn latest (PostgreSQL 18.x)
+    # PostgreSQL 18 tương thích ngược với Airflow 2.9.x qua SQLAlchemy
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  primary:
+    resources:
+      requests:
+        cpu: "100m"
+        memory: "256Mi"
+      limits:
+        cpu: "500m"
+        memory: "512Mi"
+
+# KubernetesExecutor không cần Redis/Workers/Flower
+redis:
+  enabled: false
+workers:
+  replicas: 0
+  # workers.resources định nghĩa resource template cho KubernetesExecutor task pods
+  # (không phải pod của workers vì replicas=0)
+  # → override per-env trong airflow.yaml.gotmpl
+flower:
+  enabled: false
+
+# Triggerer — cần cho deferrable operators (SparkKubernetesOperator async mode)
+triggerer:
+  enabled: true
+  replicas: 1
+  persistence:
+    enabled: false
+
+# --- Webserver ---
+webserver:
+  replicas: 1
+  # startupProbe cho phép pip install (~3-5m) + gunicorn startup (~1m) hoàn thành
+  # trước khi liveness/readiness bắt đầu check
+  # failureThreshold * periodSeconds = 600s max startup window
+  startupProbe:
+    periodSeconds: 10
+    failureThreshold: 60
+    timeoutSeconds: 20
+  livenessProbe:
+    timeoutSeconds: 30
+    failureThreshold: 10
+    periodSeconds: 15
+  readinessProbe:
+    timeoutSeconds: 30
+    failureThreshold: 10
+    periodSeconds: 15
+  defaultUser:
+    enabled: true
+    role: Admin
+    username: admin
+    email: admin@data-platform.local
+    firstName: Admin
+    lastName: User
+    # password: set in values/env/airflow.yaml.gotmpl
+  service:
+    type: ClusterIP  # override per env
+
+# --- Migration & CreateUser Jobs ---
+# Cần set explicit resources vì LimitRange default (256Mi) có thể không đủ
+# khi job cũng phải pip install providers trước khi chạy
+migrateDatabaseJob:
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "512Mi"
+    limits:
+      cpu: "500m"
+      memory: "1Gi"
+
+createUserJob:
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "512Mi"
+    limits:
+      cpu: "500m"
+      memory: "1Gi"
+
+# --- DAGs via PVC ---
+dags:
+  persistence:
+    enabled: true
+    # size, storageClassName, accessMode: set in values/env/airflow.yaml.gotmpl
+  gitSync:
+    enabled: false  # bật per-env cho prod
+
+logs:
+  persistence:
+    enabled: false  # dùng remote logging → MinIO (config trong config.logging)
+
+# --- Airflow Config ---
+config:
+  core:
+    load_examples: "False"
+    default_timezone: "UTC"
+    parallelism: "16"
+    max_active_tasks_per_dag: "8"
+    max_active_runs_per_dag: "3"
+  kubernetes_executor:
+    namespace: "data-orchestration"
+    delete_worker_pods: "True"
+    delete_worker_pods_on_failure: "False"  # giữ pod failed để debug
+    worker_pods_creation_batch_size: "5"
+  scheduler:
+    enable_health_check: "True"
+  logging:
+    logging_level: "INFO"
+    colored_console_log: "False"
+    remote_logging: "True"
+    remote_base_log_folder: "s3://airflow-logs/"
+    remote_log_conn_id: "minio_s3"  # connection inject qua AIRFLOW_CONN_MINIO_S3
+    encrypt_s3_logs: "False"
+
+rbac:
+  create: true
+
+serviceAccount:
+  create: true
+  name: airflow

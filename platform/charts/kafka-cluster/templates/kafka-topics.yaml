@@ -1,0 +1,23 @@
+# KafkaTopic CRDs — Strimzi EntityOperator đọc và tạo topics trong Kafka
+# Topics được định nghĩa trong values, không hardcode ở đây
+{{- range .Values.topics }}
+---
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaTopic
+metadata:
+  name: {{ .name }}
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    # Label này bắt buộc — EntityOperator dùng để biết topic thuộc cluster nào
+    strimzi.io/cluster: {{ $.Values.cluster.name }}
+spec:
+  partitions: {{ .partitions }}
+  # Dùng cluster replicationFactor nếu topic không khai báo riêng
+  replicas: {{ default $.Values.cluster.replicationFactor .replicationFactor }}
+  config:
+    # retention.ms: giữ message bao lâu (ms)
+    # -1 = giữ mãi mãi, 604800000 = 7 ngày
+    retention.ms: {{ default 604800000 .retentionMs }}
+    # cleanup.policy: delete (xóa theo retention) hoặc compact (giữ key mới nhất)
+    cleanup.policy: {{ default "delete" .cleanupPolicy }}
+{{- end }}

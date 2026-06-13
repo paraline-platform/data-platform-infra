@@ -1,0 +1,95 @@
+# KafkaNodePool — định nghĩa "pool" của các Kafka nodes
+#
+# Dev: 1 pool "combined" — mỗi node vừa là controller vừa là broker
+#      Tiết kiệm tài nguyên: 1 pod thay vì 2
+#
+# Prod: 2 pools riêng — "controller" (3 pods) + "broker" (3 pods)
+#       Tách biệt trách nhiệm, scale broker mà không ảnh hưởng controller
+#
+# Strimzi đọc label "strimzi.io/cluster" để biết pool này thuộc cluster nào
+{{- if le (int .Values.cluster.replicas) 1 }}
+# Dev mode: combined (broker + controller trong cùng 1 pod)
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaNodePool
+metadata:
+  name: combined
+  namespace: {{ .Release.Namespace }}
+  labels:
+    strimzi.io/cluster: {{ .Values.cluster.name }}
+spec:
+  replicas: 1
+  roles:
+    - controller   # Quản lý cluster metadata (leader election, partition assignment)
+    - broker       # Nhận/gửi messages
+  storage:
+    type: jbod     # JBOD = Just a Bunch Of Disks (Strimzi yêu cầu kiểu này)
+    volumes:
+      - id: 0
+        type: persistent-claim
+        size: {{ .Values.cluster.storage.size }}
+        class: {{ .Values.cluster.storage.class }}
+        deleteClaim: false   # false: giữ data khi xóa pod (quan trọng!)
+  resources:
+    requests:
+      cpu: {{ .Values.cluster.resources.requests.cpu | quote }}
+      memory: {{ .Values.cluster.resources.requests.memory | quote }}
+    limits:
+      cpu: {{ .Values.cluster.resources.limits.cpu | quote }}
+      memory: {{ .Values.cluster.resources.limits.memory | quote }}
+{{- else }}
+# Prod mode: controller pool riêng
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaNodePool
+metadata:
+  name: controller
+  namespace: {{ .Release.Namespace }}
+  labels:
+    strimzi.io/cluster: {{ .Values.cluster.name }}
+spec:
+  replicas: {{ .Values.cluster.replicas }}
+  roles:
+    - controller
+  storage:
+    type: jbod
+    volumes:
+      - id: 0
+        type: persistent-claim
+        size: 10Gi   # Controller chỉ cần ít storage (metadata, không lưu messages)
+        class: {{ .Values.cluster.storage.class }}
+        deleteClaim: false
+  resources:
+    requests:
+      cpu: "500m"
+      memory: "512Mi"
+    limits:
+      cpu: "1"
+      memory: "1Gi"
+---
+# Prod mode: broker pool riêng
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaNodePool
+metadata:
+  name: broker
+  namespace: {{ .Release.Namespace }}
+  labels:
+    strimzi.io/cluster: {{ .Values.cluster.name }}
+spec:
+  replicas: {{ .Values.cluster.replicas }}
+  roles:
+    - broker
+  storage:
+    type: jbod
+    volumes:
+      - id: 0
+        type: persistent-claim
+        size: {{ .Values.cluster.storage.size }}
+        class: {{ .Values.cluster.storage.class }}
+        deleteClaim: false
+  resources:
+    requests:
+      cpu: {{ .Values.cluster.resources.requests.cpu | quote }}
+      memory: {{ .Values.cluster.resources.requests.memory | quote }}
+    limits:
+      cpu: {{ .Values.cluster.resources.limits.cpu | quote }}
+      memory: {{ .Values.cluster.resources.limits.memory | quote }}
+{{- end }}

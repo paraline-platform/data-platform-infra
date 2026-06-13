@@ -1,0 +1,56 @@
+# Kafka CRD — khai báo cấu hình Kafka cluster
+# Strimzi operator đọc resource này và tạo StatefulSet, Services, ConfigMaps...
+#
+# 2 annotations quan trọng cho KRaft mode:
+#   strimzi.io/node-pools: enabled  → dùng KafkaNodePool để định nghĩa nodes
+#   strimzi.io/kraft: enabled       → bật KRaft mode (không cần ZooKeeper)
+apiVersion: kafka.strimzi.io/v1beta2
+kind: Kafka
+metadata:
+  name: {{ .Values.cluster.name }}
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    strimzi.io/node-pools: enabled
+    strimzi.io/kraft: enabled
+spec:
+  kafka:
+    version: {{ .Values.cluster.version | quote }}
+    # metadataVersion: không khai báo → Strimzi tự chọn version phù hợp
+
+    listeners:
+      # Listener plain (port 9092): không encrypt — dùng trong cluster (service-to-service)
+      # Các app trong K8s cluster (Spark, Airflow, NiFi) dùng listener này
+      - name: plain
+        port: 9092
+        type: internal     # internal = chỉ accessible trong cluster
+        tls: false
+
+      # Listener tls (port 9093): có encrypt — dùng khi cần secure
+      # Ví dụ: external clients, hoặc cross-namespace communications
+      - name: tls
+        port: 9093
+        type: internal
+        tls: true
+
+    config:
+      # Replication settings — tự động điều chỉnh theo số broker
+      offsets.topic.replication.factor: {{ .Values.cluster.replicationFactor }}
+      transaction.state.log.replication.factor: {{ .Values.cluster.replicationFactor }}
+      transaction.state.log.min.isr: {{ .Values.cluster.minInsyncReplicas }}
+      default.replication.factor: {{ .Values.cluster.replicationFactor }}
+      min.insync.replicas: {{ .Values.cluster.minInsyncReplicas }}
+
+      # Log retention — giữ data bao lâu
+      # 7 ngày = 604800000ms — đủ để reprocess nếu cần
+      log.retention.hours: 168
+      log.segment.bytes: 1073741824  # 1GB per segment file
+
+      # Performance
+      num.partitions: 3              # Default partition count cho topic mới
+      num.recovery.threads.per.data.dir: 1
+
+  # EntityOperator: quản lý KafkaTopic và KafkaUser resources
+  # Cần enabled để các KafkaTopic CRD (bên dưới) được tạo đúng
+  entityOperator:
+    topicOperator: {}   # {} = dùng default config
+    userOperator: {}

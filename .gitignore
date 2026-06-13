@@ -1,0 +1,23 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Secrets / local env
+.env
+*.env.local
+secrets/
+
+# Local notes & workbench files (không phải config chính thức)
+platform/notes.txt
+platform/commands.txt
+
+# Temp
+tmp/
+*.log

@@ -1,0 +1,60 @@
+# ============================================================
+# AIRFLOW RBAC — Quyền truy cập cross-namespace
+# ============================================================
+# Chart Airflow tự tạo Role+RoleBinding cho namespace data-orchestration
+# (scheduler tạo task pods). File này bổ sung quyền để Airflow
+# có thể tương tác với các namespace khác:
+#
+#   data-processing  → tạo/xem/xóa SparkApplication
+#                      (cần cho SparkKubernetesOperator)
+#   data-ingestion   → xem KafkaTopic (future: KafkaOperator)
+# ============================================================
+
+# --- ClusterRole: quản lý SparkApplication ---
+# SparkKubernetesOperator submit SparkApplication CRD vào data-processing
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: airflow-spark-operator
+  labels:
+    platform: data-lakehouse
+    component: airflow
+rules:
+  # SparkApplication CRUD — cần để SparkKubernetesOperator hoạt động
+  # /status là subresource riêng, phải khai báo tách biệt
+  - apiGroups: ["sparkoperator.k8s.io"]
+    resources: ["sparkapplications", "sparkapplications/status",
+                "scheduledsparkapplications", "scheduledsparkapplications/status"]
+    verbs: ["create", "get", "list", "watch", "delete", "patch", "update"]
+
+  # Pods read — cần để theo dõi trạng thái driver pod
+  - apiGroups: [""]
+    resources: ["pods", "pods/log"]
+    verbs: ["get", "list", "watch"]
+
+  # Events read — debug khi job fail
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["get", "list", "watch"]
+
+---
+# --- ClusterRoleBinding: gán ClusterRole cho airflow ServiceAccount ---
+# ServiceAccount "airflow" được tạo bởi chart trong data-orchestration
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: airflow-spark-operator
+  labels:
+    platform: data-lakehouse
+    component: airflow
+subjects:
+  - kind: ServiceAccount
+    name: airflow                   # SA dùng bởi scheduler/webserver/triggerer
+    namespace: data-orchestration
+  - kind: ServiceAccount
+    name: airflow-worker            # SA dùng bởi KubernetesExecutor task pods
+    namespace: data-orchestration
+roleRef:
+  kind: ClusterRole
+  name: airflow-spark-operator
+  apiGroup: rbac.authorization.k8s.io

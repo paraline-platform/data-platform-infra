@@ -1,0 +1,99 @@
+# ============================================================
+# AIRFLOW ENV CONFIG — Dynamic values từ environments/*.yaml
+# ============================================================
+# Bridge .Values → Helm chart values.
+# Không hardcode ở đây — tất cả đọc từ environments/<env>.yaml.
+
+# --- Database ---
+postgresql:
+  auth:
+    password: {{ .Values.airflow.auth.postgresPassword | quote }}
+
+# --- Webserver ---
+webserver:
+  defaultUser:
+    password: {{ .Values.airflow.auth.adminPassword | quote }}
+  service:
+    type: {{ .Values.airflow.service.type }}
+  resources:
+    {{- toYaml .Values.airflow.resources.webserver | nindent 4 }}
+
+# --- Scheduler ---
+scheduler:
+  resources:
+    {{- toYaml .Values.airflow.resources.scheduler | nindent 4 }}
+
+# --- Triggerer ---
+triggerer:
+  resources:
+    {{- toYaml .Values.airflow.resources.triggerer | nindent 4 }}
+
+# --- KubernetesExecutor task pod template ---
+# workers.resources = default resource limits cho mỗi task pod
+# (workers.replicas=0 nên không tạo worker pods, chỉ dùng làm pod template)
+workers:
+  resources:
+    {{- toYaml .Values.airflow.resources.worker | nindent 4 }}
+
+# --- DAGs PVC ---
+dags:
+  persistence:
+    size: {{ .Values.airflow.dags.storageSize }}
+    storageClassName: {{ .Values.airflow.dags.storageClass }}
+    accessMode: {{ .Values.airflow.dags.accessMode }}
+  {{- if .Values.airflow.gitSync.enabled }}
+  gitSync:
+    enabled: true
+    repo: {{ .Values.airflow.gitSync.repo | quote }}
+    branch: {{ .Values.airflow.gitSync.branch | quote }}
+    rev: HEAD
+    depth: 1
+    period: {{ .Values.airflow.gitSync.period | default "60s" }}
+    subPath: "dags"
+  {{- end }}
+
+# --- UI branding ---
+config:
+  webserver:
+    instance_name: "Data Platform [{{ .Values.global.env | upper }}]"
+
+# --- Connections & Variables (inject qua env vars) ---
+# Airflow đọc AIRFLOW_CONN_{ID} và AIRFLOW_VAR_{KEY} khi pod start.
+# Không cần tạo thủ công qua UI.
+env:
+  # MinIO S3-compatible — dùng: S3Hook(aws_conn_id="minio_s3")
+  - name: AIRFLOW_CONN_MINIO_S3
+    value: {{ printf `{"conn_type": "aws", "login": "%s", "password": "%s", "extra": {"endpoint_url": "http://minio.data-storage.svc.cluster.local:9000", "aws_access_key_id": "%s", "aws_secret_access_key": "%s"}}` .Values.minio.auth.rootUser .Values.minio.auth.rootPassword .Values.minio.auth.rootUser .Values.minio.auth.rootPassword | quote }}
+
+  # Kubernetes in-cluster — dùng: SparkKubernetesOperator(kubernetes_conn_id="kubernetes_default")
+  - name: AIRFLOW_CONN_KUBERNETES_DEFAULT
+    value: '{"conn_type": "kubernetes", "extra": {"in_cluster": "True"}}'
+
+  # Kafka — dùng: KafkaProducerOperator(kafka_conn_id="kafka_default")
+  - name: AIRFLOW_CONN_KAFKA_DEFAULT
+    value: '{"conn_type": "kafka", "extra": {"bootstrap.servers": "data-platform-kafka-bootstrap.data-ingestion.svc.cluster.local:9092", "security_protocol": "PLAINTEXT"}}'
+
+  # --- Airflow Variables ---
+  - name: AIRFLOW_VAR_ENV
+    value: {{ .Values.global.env | quote }}
+
+  - name: AIRFLOW_VAR_MINIO_ENDPOINT
+    value: "http://minio.data-storage.svc.cluster.local:9000"
+
+  - name: AIRFLOW_VAR_MINIO_BUCKET_LANDING
+    value: "landing"
+
+  - name: AIRFLOW_VAR_MINIO_BUCKET_WAREHOUSE
+    value: "warehouse"
+
+  - name: AIRFLOW_VAR_SPARK_NAMESPACE
+    value: "data-processing"
+
+  - name: AIRFLOW_VAR_SPARK_SERVICE_ACCOUNT
+    value: "spark-operator-spark"
+
+  # Spark resource profiles từ spark-profiles/<env>.yaml
+  # DAGs dùng: Variable.get("spark_profiles") → build_spark_spec(base, profile)
+  # Trigger với profile: UI → Trigger DAG w/ config → {"spark_profile": "medium"}
+  - name: AIRFLOW_VAR_SPARK_PROFILES
+    value: {{ .Values.profiles | toJson | quote }}

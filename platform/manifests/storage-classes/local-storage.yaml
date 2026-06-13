@@ -1,0 +1,44 @@
+# StorageClass cho môi trường local (Kind/Minikube)
+#
+# Kind có sẵn StorageClass "standard" dùng rancher.io/local-path provisioner
+# Tuy nhiên ta tạo riêng để:
+#   1. Có thể dễ swap sang cloud storage khi lên prod (chỉ đổi provisioner)
+#   2. Kiểm soát rõ WaitForFirstConsumer (volume chỉ tạo khi pod được schedule)
+#
+# Trên prod: thay provisioner thành:
+#   - AWS:   ebs.csi.aws.com
+#   - GCP:   pd.csi.storage.gke.io
+#   - Azure: disk.csi.azure.com
+#   - On-premise: nfs.csi.k8s.io
+
+---
+# StorageClass cho data thường (Kafka logs, MinIO data, Postgres data)
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: platform-standard
+  annotations:
+    # Đặt làm default StorageClass — PVC nào không chỉ định storageClassName sẽ dùng cái này
+    storageclass.kubernetes.io/is-default-class: "true"
+provisioner: rancher.io/local-path   # Provisioner có sẵn trong Kind
+# volumeBindingMode:
+#   Immediate: tạo PV ngay khi PVC được tạo (không biết pod sẽ chạy ở node nào)
+#   WaitForFirstConsumer: đợi pod được schedule xong mới tạo PV ở node đó
+#   → WaitForFirstConsumer tốt hơn cho multi-node (tránh pod bị stuck)
+volumeBindingMode: WaitForFirstConsumer
+# reclaimPolicy:
+#   Delete: xóa PV khi PVC bị xóa (dev: OK, prod: CẨN THẬN!)
+#   Retain: giữ PV lại (prod: an toàn hơn, cần xóa thủ công)
+reclaimPolicy: Delete
+allowVolumeExpansion: true  # Cho phép tăng dung lượng PVC sau khi tạo
+
+---
+# StorageClass cho data quan trọng (prod nên dùng Retain)
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: platform-retain
+provisioner: rancher.io/local-path
+volumeBindingMode: WaitForFirstConsumer
+reclaimPolicy: Retain            # Giữ data ngay cả khi xóa PVC
+allowVolumeExpansion: true

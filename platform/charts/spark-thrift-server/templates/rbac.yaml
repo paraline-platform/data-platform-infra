@@ -1,0 +1,35 @@
+{{- $isK8sMode := hasPrefix "k8s://" .Values.sparkMaster -}}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: spark-thrift-server
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "spark-thrift-server.labels" . | nindent 4 }}
+---
+{{- if $isK8sMode }}
+# Role cho driver tạo/xóa executor pods (chỉ cần khi k8s:// master mode)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: spark-thrift-server-executor
+  namespace: {{ .Release.Namespace }}
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "services", "configmaps"]
+    verbs: ["create", "get", "list", "watch", "delete", "update", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: spark-thrift-server-executor
+  namespace: {{ .Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: spark-thrift-server-executor
+subjects:
+  - kind: ServiceAccount
+    name: spark-thrift-server
+    namespace: {{ .Release.Namespace }}
+{{- end }}

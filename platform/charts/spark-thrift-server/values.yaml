@@ -1,0 +1,52 @@
+# Defaults — override bằng values/base/ và values/env/*.gotmpl
+image:
+  repository: apache/spark
+  tag: "3.5.3"
+  pullPolicy: IfNotPresent
+
+replicaCount: 1
+
+# local[2] cho dev, k8s://https://kubernetes.default.svc:443 cho uat/prod
+sparkMaster: "local[2]"
+
+nessie:
+  uri: "http://nessie.data-modeling.svc.cluster.local:19120/api/v2"
+  ref: "main"
+  warehouse: "s3a://warehouse/"
+
+minio:
+  endpoint: "http://minio.data-storage.svc.cluster.local:9000"
+  accessKey: "admin"
+  secretKey: "minio-dev-password"
+
+jars:
+  icebergVersion: "1.6.1"
+  hadoopAwsVersion: "3.3.4"
+  awsSdkVersion: "1.12.587"
+
+# Dynamic Allocation — chỉ dùng khi sparkMaster = k8s://...
+dynamicAllocation:
+  enabled: false
+  minExecutors: 0
+  maxExecutors: 2
+  executorIdleTimeout: "60s"
+  shuffleTracking: true          # cần thiết khi không có External Shuffle Service
+
+# Executor spec cho k8s mode (ignored khi local[N] mode)
+executor:
+  cores: 1
+  memory: "1g"
+  image: "apache/spark:3.5.3"
+
+resources:
+  requests:
+    cpu: "500m"
+    memory: "1Gi"
+  limits:
+    cpu: "1"
+    memory: "2Gi"
+
+service:
+  type: ClusterIP
+  thriftPort: 10000
+  uiPort: 4040

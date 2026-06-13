@@ -1,0 +1,29 @@
+# Default values — bị override bởi values/base/kafka-cluster.yaml
+# và values/env/kafka-cluster.yaml.gotmpl
+
+cluster:
+  name: data-platform
+  version: "4.1.0"
+  replicas: 1
+  # replicationFactor: số lần mỗi message được sao lưu
+  # Dev (1 broker): phải là 1 (không thể replicate hơn số broker)
+  # Prod (3 brokers): nên là 3 để HA
+  replicationFactor: 1
+  # minInsyncReplicas: số replica tối thiểu phải acknowledge trước khi producer nhận OK
+  # Dev: 1 (chỉ có 1 broker)
+  # Prod: 2 (nếu 1 broker down, vẫn còn 2 broker confirm → an toàn)
+  minInsyncReplicas: 1
+  storage:
+    size: 10Gi
+    class: platform-standard
+  resources:
+    requests:
+      cpu: "500m"
+      memory: "512Mi"
+    limits:
+      cpu: "1"
+      memory: "1Gi"
+
+# Topics được tạo tự động khi cluster start
+# Partition count nên là bội số của số brokers
+topics: []

@@ -1,0 +1,22 @@
+{{/*
+  values/env/spark-operator.yaml.gotmpl
+  Dịch environments/dev.yaml → spark-operator chart values
+*/}}
+
+controller:
+  resources:
+    requests:
+      cpu: {{ .Values.spark.operator.resources.requests.cpu | quote }}
+      memory: {{ .Values.spark.operator.resources.requests.memory | quote }}
+    limits:
+      cpu: {{ .Values.spark.operator.resources.limits.cpu | quote }}
+      memory: {{ .Values.spark.operator.resources.limits.memory | quote }}
+
+webhook:
+  resources:
+    requests:
+      cpu: {{ .Values.spark.operator.resources.requests.cpu | quote }}
+      memory: {{ .Values.spark.operator.resources.requests.memory | quote }}
+    limits:
+      cpu: {{ .Values.spark.operator.resources.limits.cpu | quote }}
+      memory: {{ .Values.spark.operator.resources.limits.memory | quote }}

@@ -1,0 +1,1107 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Data Lakehouse Platform — Architecture & Data Flow</title>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<style>
+  :root {
+    --navy: #1A237E; --navy-lt: #3F51B5; --navy-bg: #E8EAF6;
+    --teal: #004D40; --teal-lt: #00897B; --teal-bg: #E0F2F1;
+    --orange: #E65100; --orange-lt: #FF8F00; --orange-bg: #FFF3E0;
+    --purple: #4A148C; --purple-lt: #7B1FA2; --purple-bg: #F3E5F5;
+    --green: #1B5E20; --green-lt: #388E3C; --green-bg: #E8F5E9;
+    --blue: #0D47A1; --blue-lt: #1976D2; --blue-bg: #E3F2FD;
+    --grey: #37474F; --grey-bg: #ECEFF1;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', system-ui, sans-serif; background: #F5F5F5; color: #212121; }
+  header {
+    background: var(--navy);
+    color: white; padding: 24px 40px;
+    display: flex; align-items: center; gap: 16px;
+  }
+  header h1 { font-size: 1.6rem; font-weight: 700; }
+  header p { font-size: 0.9rem; opacity: 0.8; margin-top: 4px; }
+  nav {
+    background: var(--navy-lt); display: flex; gap: 2px;
+    padding: 0 40px; overflow-x: auto;
+  }
+  nav a {
+    color: white; text-decoration: none; padding: 10px 18px;
+    font-size: 0.85rem; font-weight: 500; white-space: nowrap;
+    border-bottom: 3px solid transparent;
+    transition: border-color 0.2s;
+  }
+  nav a:hover, nav a.active { border-bottom-color: white; background: rgba(255,255,255,0.1); }
+  .container { max-width: 1400px; margin: 0 auto; padding: 32px 40px; }
+  .section { margin-bottom: 48px; }
+  .section-title {
+    font-size: 1.3rem; font-weight: 700;
+    color: var(--navy); margin-bottom: 8px;
+    padding-bottom: 8px; border-bottom: 3px solid var(--navy-lt);
+    display: flex; align-items: center; gap: 10px;
+  }
+  .section-desc { color: #666; font-size: 0.9rem; margin-bottom: 20px; }
+  .diagram-card {
+    background: white; border-radius: 12px;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+    padding: 28px; margin-bottom: 24px;
+    overflow-x: auto;
+  }
+  .diagram-card h3 {
+    font-size: 1rem; font-weight: 600;
+    color: var(--grey); margin-bottom: 16px;
+    text-transform: uppercase; letter-spacing: 0.5px;
+  }
+  .mermaid { min-width: 600px; }
+  .legend {
+    display: flex; flex-wrap: wrap; gap: 12px;
+    margin-top: 16px; padding-top: 16px;
+    border-top: 1px solid #E0E0E0;
+  }
+  .legend-item {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 0.8rem; color: #555;
+  }
+  .legend-dot {
+    width: 14px; height: 14px; border-radius: 3px; flex-shrink: 0;
+  }
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+  @media (max-width: 900px) { .grid-2 { grid-template-columns: 1fr; } }
+  .badge {
+    display: inline-block; padding: 2px 10px; border-radius: 12px;
+    font-size: 0.75rem; font-weight: 600;
+  }
+  .badge-green { background: var(--green-bg); color: var(--green); }
+  .badge-blue  { background: var(--blue-bg);  color: var(--blue); }
+  .status-table {
+    width: 100%; border-collapse: collapse; font-size: 0.88rem;
+    margin-top: 16px;
+  }
+  .status-table th {
+    background: var(--navy); color: white;
+    padding: 10px 14px; text-align: left; font-weight: 600;
+  }
+  .status-table td { padding: 9px 14px; border-bottom: 1px solid #E0E0E0; }
+  .status-table tr:nth-child(even) td { background: #FAFAFA; }
+  .status-table tr:hover td { background: var(--navy-bg); }
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>🏗 Data Lakehouse Platform</h1>
+    <p>K8s-based · Iceberg + Nessie + Spark + dbt · dev / uat / prod</p>
+  </div>
+</header>
+
+<nav>
+  <a href="#arch" class="active">Architecture Overview</a>
+  <a href="#k8s">K8s Namespaces</a>
+  <a href="#dataflow">Data Flow</a>
+  <a href="#dbt-flow">dbt Lineage</a>
+  <a href="#deploy-flow">Deploy Flow</a>
+  <a href="#status">Component Status</a>
+  <a href="#debezium">Debezium CDC</a>
+  <a href="#nifi">NiFi</a>
+  <a href="#airflow">Airflow</a>
+</nav>
+
+<div class="container">
+
+<!-- ═══════════════════════════════════════════════════ ARCHITECTURE -->
+<div class="section" id="arch">
+  <div class="section-title">🏛 Architecture Overview — 8 Layers</div>
+  <div class="section-desc">Toàn bộ platform được chia thành 8 layers, mỗi layer là 1 nhóm Helm releases trong 1 Kubernetes namespace.</div>
+
+  <div class="diagram-card">
+    <h3>Platform Layer Architecture</h3>
+    <div class="mermaid">
+graph TB
+    subgraph L00["Layer 00 · Infrastructure · data-infra"]
+        NGINX["🔀 ingress-nginx<br/>HTTP routing + SSL"]
+    end
+
+    subgraph L01["Layer 01 · Ingestion · data-ingestion"]
+        STRIMZI["⚙️ Strimzi Operator<br/>Kafka K8s operator"]
+        KAFKA["📨 Kafka Cluster<br/>Event streaming · KRaft mode"]
+        DEBEZIUM["🔄 Debezium CDC<br/>PostgreSQL → Kafka"]
+        NIFI["🔁 Apache NiFi<br/>Low-code data flow"]
+    end
+
+    subgraph L02["Layer 02 · Storage · data-storage"]
+        MINIO["🗄️ MinIO<br/>S3-compatible object storage<br/>Parquet + Iceberg metadata files"]
+    end
+
+    subgraph L03["Layer 03 · Processing · data-processing"]
+        SPARKOP["⚡ Spark Operator<br/>SparkApplication CRD controller"]
+        SPARKJOB["🔥 Spark Jobs<br/>iceberg-test, nessie-namespace-setup"]
+    end
+
+    subgraph L04["Layer 04 · Lakehouse · data-modeling"]
+        NESSIE["🌿 Nessie<br/>Iceberg REST Catalog<br/>Git-like table versioning"]
+        THRIFT["🖧 Spark Thrift Server<br/>HiveServer2 · port 10000<br/>SQL gateway cho dbt"]
+        DBT["📊 dbt Jobs<br/>SQL transformation<br/>K8s Job pattern"]
+    end
+
+    subgraph L05["Layer 05 · Governance · data-governance"]
+        DATAHUB["🗂️ DataHub<br/>Data catalog + lineage"]
+    end
+
+    subgraph L06["Layer 06 · Orchestration · data-orchestration"]
+        AIRFLOW["🔧 Apache Airflow<br/>DAG-based workflow"]
+    end
+
+    subgraph L07["Layer 07 · Observability · data-observability"]
+        PROM["📈 Prometheus<br/>Metrics collection"]
+        GRAFANA["📊 Grafana<br/>Dashboards + alerting"]
+    end
+
+    STRIMZI --> KAFKA
+    KAFKA --> DEBEZIUM
+    DEBEZIUM --> KAFKA
+    SPARKOP --> SPARKJOB
+    SPARKJOB --> NESSIE
+    SPARKJOB --> MINIO
+    NESSIE -.->|"catalog metadata"| THRIFT
+    MINIO -.->|"S3A data files"| THRIFT
+    THRIFT --> DBT
+    AIRFLOW -.->|"trigger"| DBT
+    AIRFLOW -.->|"trigger"| SPARKJOB
+    DATAHUB -.->|"metadata"| NESSIE
+
+    classDef infra   fill:#ECEFF1,stroke:#607D8B,color:#37474F
+    classDef ingest  fill:#FFF3E0,stroke:#FF8F00,color:#E65100
+    classDef storage fill:#E0F2F1,stroke:#00897B,color:#004D40
+    classDef process fill:#E3F2FD,stroke:#1976D2,color:#0D47A1
+    classDef lake    fill:#E8EAF6,stroke:#3F51B5,color:#1A237E
+    classDef govern  fill:#F3E5F5,stroke:#7B1FA2,color:#4A148C
+    classDef orch    fill:#E8F5E9,stroke:#388E3C,color:#1B5E20
+    classDef obs     fill:#FFEBEE,stroke:#D32F2F,color:#B71C1C
+
+    class NGINX infra
+    class STRIMZI,KAFKA,DEBEZIUM,NIFI ingest
+    class MINIO storage
+    class SPARKOP,SPARKJOB process
+    class NESSIE,THRIFT,DBT lake
+    class DATAHUB govern
+    class AIRFLOW orch
+    class PROM,GRAFANA obs
+    </div>
+    <div class="legend">
+      <div class="legend-item"><div class="legend-dot" style="background:#ECEFF1;border:1px solid #607D8B"></div> Layer 00: Infra</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#FFF3E0;border:1px solid #FF8F00"></div> Layer 01: Ingestion</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#E0F2F1;border:1px solid #00897B"></div> Layer 02: Storage</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#E3F2FD;border:1px solid #1976D2"></div> Layer 03: Processing</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#E8EAF6;border:1px solid #3F51B5"></div> Layer 04: Lakehouse ✅</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#F3E5F5;border:1px solid #7B1FA2"></div> Layer 05: Governance</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#E8F5E9;border:1px solid #388E3C"></div> Layer 06: Orchestration</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#FFEBEE;border:1px solid #D32F2F"></div> Layer 07: Observability</div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════ K8S NAMESPACES -->
+<div class="section" id="k8s">
+  <div class="section-title">☸️ K8s Namespace & Resource Structure</div>
+  <div class="section-desc">Mỗi layer deploy vào 1 namespace riêng. Namespace isolation: resources, network policies, RBAC, resource quotas.</div>
+
+  <div class="diagram-card">
+    <h3>Namespace Layout — Kind Cluster (dev)</h3>
+    <div class="mermaid">
+graph LR
+    subgraph CLUSTER["Kind Cluster: kind-data-platform"]
+        subgraph NS1["data-infra"]
+            N1["ingress-nginx pod"]
+        end
+        subgraph NS2["data-storage"]
+            N2["minio-0 StatefulSet\n5Gi PVC"]
+        end
+        subgraph NS3["data-ingestion"]
+            N3A["strimzi-operator"]
+            N3B["kafka-cluster-kafka-0"]
+            N3C["debezium KafkaConnect"]
+        end
+        subgraph NS4["data-processing"]
+            N4A["spark-operator-controller"]
+            N4B["spark-operator-webhook"]
+            N4C["<job>-driver pod"]
+            N4D["<job>-exec-N pods"]
+        end
+        subgraph NS5["data-modeling ✅"]
+            N5A["nessie Deployment\n19120/api/v2"]
+            N5B["spark-thrift-server\nport 10000"]
+            N5C["dbt-run-xxx Job\nttl=300s"]
+        end
+        subgraph NS6["data-governance"]
+            N6["datahub pods"]
+        end
+        subgraph NS7["data-orchestration"]
+            N7["airflow scheduler\nairflow webserver"]
+        end
+        subgraph NS8["data-observability"]
+            N8["prometheus\ngrafana"]
+        end
+    end
+
+    classDef active fill:#E8EAF6,stroke:#3F51B5,color:#1A237E,font-weight:bold
+    classDef defined fill:#F5F5F5,stroke:#BDBDBD,color:#757575
+    class NS5,N5A,N5B,N5C active
+    class NS6,N6,NS7,N7,NS8,N8 defined
+    </div>
+  </div>
+
+  <div class="diagram-card">
+    <h3>Helm Chart Structure — Custom Charts vs Community Charts</h3>
+    <div class="mermaid">
+graph TD
+    HF["helmfile.yaml.gotmpl<br/>(Orchestrator)"]
+
+    subgraph COMMUNITY["Community Helm Charts (external repos)"]
+        C1["bitnami/minio v5.4.0"]
+        C2["strimzi/strimzi-kafka-operator v0.51.0"]
+        C3["spark-operator/spark-operator v2.5.0"]
+        C4["projectnessie/nessie v0.107.9"]
+        C5["airflow/airflow v1.14.0"]
+        C6["datahub/datahub"]
+        C7["prometheus-community/kube-prometheus-stack"]
+    end
+
+    subgraph CUSTOM["Custom Helm Charts (./charts/)"]
+        D1["charts/spark-thrift-server<br/>Custom: HiveThriftServer2 với Iceberg+Nessie"]
+        D2["charts/spark-job<br/>Custom: SparkApplication CRD template"]
+        D3["charts/kafka-cluster<br/>Custom: Strimzi Kafka CR wrapper"]
+        D4["charts/debezium<br/>Custom: Debezium KafkaConnect"]
+    end
+
+    subgraph VALUES["Values Layer"]
+        V1["values/base/*.yaml<br/>(static, cluster-internal endpoints)"]
+        V2["values/env/*.yaml.gotmpl<br/>(dynamic, per-env from environments/)"]
+        V3["environments/dev|uat|prod.yaml<br/>(SINGLE SOURCE OF TRUTH)"]
+    end
+
+    HF --> COMMUNITY
+    HF --> CUSTOM
+    V3 --> V2
+    V1 --> HF
+    V2 --> HF
+
+    classDef custom fill:#E8EAF6,stroke:#3F51B5
+    classDef community fill:#E8F5E9,stroke:#388E3C
+    classDef values fill:#FFF3E0,stroke:#FF8F00
+    class D1,D2,D3,D4 custom
+    class C1,C2,C3,C4,C5,C6,C7 community
+    class V1,V2,V3 values
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════ DATA FLOW -->
+<div class="section" id="dataflow">
+  <div class="section-title">🔄 Data Flow — End-to-End Pipeline (Hiện tại đã build)</div>
+  <div class="section-desc">Luồng dữ liệu đã được verify: từ source data → Spark ingestion → Iceberg table trong Nessie/MinIO → dbt transformation → mart tables.</div>
+
+  <div class="diagram-card">
+    <h3>Current Data Flow (Layer 02 + 03 + 04 — VERIFIED ✅)</h3>
+    <div class="mermaid">
+sequenceDiagram
+    participant DEV as Developer<br/>(local machine)
+    participant SCRIPT as run-spark-job.sh<br/>run-dbt.sh
+    participant K8S as Kubernetes API
+    participant SPARK as Spark Job<br/>(data-processing)
+    participant NESSIE as Nessie Catalog<br/>nessie.data-modeling:19120
+    participant MINIO as MinIO<br/>data-storage:9000
+    participant THRIFT as Spark Thrift Server<br/>data-modeling:10000
+    participant DBT as dbt Job<br/>(K8s Job)
+
+    Note over DEV,DBT: Phase 1 - Namespace Setup (1 lần)
+    DEV->>SCRIPT: run-spark-job.sh dev small nessie-namespace-setup
+    SCRIPT->>K8S: kubectl apply SparkApplication CR
+    K8S->>SPARK: Create driver pod + executor pods
+    SPARK->>NESSIE: CREATE NAMESPACE nessie.default
+    SPARK->>NESSIE: CREATE NAMESPACE nessie.dbt_dev
+    NESSIE-->>SPARK: namespaces created
+    SPARK-->>DEV: COMPLETED ✅
+
+    Note over DEV,DBT: Phase 2 - Data Ingestion (iceberg-test)
+    DEV->>SCRIPT: run-spark-job.sh dev small iceberg-test
+    SCRIPT->>K8S: kubectl apply SparkApplication CR
+    K8S->>SPARK: Create driver pod (initContainer downloads 6 JARs)
+    SPARK->>NESSIE: CREATE NAMESPACE nessie.demo
+    SPARK->>NESSIE: CREATE TABLE nessie.demo.products USING iceberg
+    NESSIE-->>SPARK: table metadata registered
+    SPARK->>MINIO: Write Parquet files → s3a://warehouse/demo/products/
+    MINIO-->>SPARK: files written
+    SPARK->>NESSIE: Commit snapshot (INSERT 3 rows)
+    SPARK-->>DEV: COMPLETED ✅
+
+    Note over DEV,DBT: Phase 3 - dbt Transformation
+    DEV->>SCRIPT: run-dbt.sh dev run
+    SCRIPT->>K8S: kubectl create configmap dbt-project (project files + profiles.yml)
+    SCRIPT->>K8S: kubectl apply Job dbt-run-timestamp
+    K8S->>DBT: Create pod (python:3.11-slim)
+    DBT->>DBT: pip install dbt-core<2.0.0 dbt-spark[PyHive]
+    DBT->>THRIFT: thrift connect → localhost:10000
+    THRIFT->>NESSIE: Lookup nessie.demo.products metadata
+    THRIFT->>MINIO: Read Parquet files (SELECT *)
+    THRIFT-->>DBT: source data returned
+    DBT->>THRIFT: CREATE VIEW nessie.dbt_dev.stg_products
+    THRIFT->>NESSIE: Register VIEW metadata
+    DBT->>THRIFT: CREATE TABLE nessie.dbt_dev.products_by_category USING iceberg
+    THRIFT->>NESSIE: Register TABLE metadata
+    THRIFT->>MINIO: Write aggregated Parquet → s3a://warehouse/dbt/dbt_dev/
+    DBT-->>DEV: PASS=2 ✅
+    </div>
+  </div>
+
+  <div class="diagram-card">
+    <h3>Data Storage Layout — MinIO Bucket Structure</h3>
+    <div class="mermaid">
+graph TD
+    BUCKET["🗄️ MinIO Bucket: warehouse"]
+
+    BUCKET --> DEMO["📁 demo/"]
+    BUCKET --> DBT["📁 dbt/"]
+
+    DEMO --> PROD_DIR["📁 products/"]
+    PROD_DIR --> META1["📁 metadata/\n  v1.metadata.json\n  v2.metadata.json\n  snap-xxx.avro"]
+    PROD_DIR --> DATA1["📁 data/\n  *.parquet\n  (3 rows từ iceberg-test)"]
+
+    DBT --> DBT_DEV["📁 dbt_dev/"]
+    DBT_DEV --> BY_CAT["📁 products_by_category/\n  (materialized Iceberg TABLE)"]
+    BY_CAT --> META2["📁 metadata/\n  v1.metadata.json\n  snap-xxx.avro"]
+    BY_CAT --> DATA2["📁 data/\n  *.parquet\n  (aggregated from dbt mart)"]
+
+    Note["📝 Lưu ý:\nstg_products là VIEW\n→ KHÔNG có files trong MinIO\n→ Chỉ SQL definition trong Nessie"]
+
+    classDef bucket fill:#E0F2F1,stroke:#00897B
+    classDef dir fill:#E8F5E9,stroke:#388E3C
+    classDef file fill:#F1F8E9,stroke:#8BC34A
+    classDef note fill:#FFF9C4,stroke:#F9A825
+    class BUCKET bucket
+    class DEMO,DBT,PROD_DIR,DBT_DEV,BY_CAT dir
+    class META1,DATA1,META2,DATA2 file
+    class Note note
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════ DBT LINEAGE -->
+<div class="section" id="dbt-flow">
+  <div class="section-title">📊 dbt Data Lineage — Model Dependencies</div>
+  <div class="section-desc">Lineage graph trong dbt: từ source table → staging view → mart table.</div>
+
+  <div class="grid-2">
+    <div class="diagram-card">
+      <h3>dbt DAG — Model Dependency Graph</h3>
+      <div class="mermaid">
+graph LR
+    SRC["📥 source: demo.products<br/><i>nessie.demo.products</i><br/>Iceberg TABLE<br/>3 rows: Laptop, Mouse, Desk"]
+
+    STG["🔧 stg_products<br/><i>nessie.dbt_dev.stg_products</i><br/>materialized: VIEW<br/>+ TRIM, LOWER, CAST<br/>+ price_tier column"]
+
+    MART["📦 products_by_category<br/><i>nessie.dbt_dev.products_by_category</i><br/>materialized: TABLE (Iceberg)<br/>GROUP BY category, price_tier<br/>COUNT, MIN, MAX, AVG, SUM"]
+
+    SRC -->|"{{ source('demo','products') }}"| STG
+    STG -->|"{{ ref('stg_products') }}"| MART
+
+    classDef src fill:#FFF3E0,stroke:#FF8F00,color:#E65100
+    classDef stg fill:#E3F2FD,stroke:#1976D2,color:#0D47A1
+    classDef mart fill:#E8EAF6,stroke:#3F51B5,color:#1A237E
+    class SRC src
+    class STG stg
+    class MART mart
+      </div>
+    </div>
+
+    <div class="diagram-card">
+      <h3>dbt Test Coverage — 13 tests PASS</h3>
+      <div class="mermaid">
+graph TD
+    subgraph SOURCE_TESTS["Source Tests (5)"]
+        ST1["source_not_null demo.products.id ✅"]
+        ST2["source_not_null demo.products.name ✅"]
+        ST3["source_not_null demo.products.category ✅"]
+        ST4["source_not_null demo.products.price ✅"]
+        ST5["source_unique demo.products.id ✅"]
+    end
+    subgraph STG_TESTS["Staging Tests (5)"]
+        T1["not_null stg_products.id ✅"]
+        T2["unique stg_products.id ✅"]
+        T3["not_null stg_products.category ✅"]
+        T4["not_null stg_products.price ✅"]
+        T5["accepted_values price_tier<br/>[budget|mid-range|premium] ✅"]
+    end
+    subgraph MART_TESTS["Mart Tests (3)"]
+        M1["not_null products_by_category.category ✅"]
+        M2["not_null products_by_category.price_tier ✅"]
+        M3["not_null products_by_category.product_count ✅"]
+    end
+
+    classDef pass fill:#E8F5E9,stroke:#388E3C,color:#1B5E20
+    class ST1,ST2,ST3,ST4,ST5,T1,T2,T3,T4,T5,M1,M2,M3 pass
+      </div>
+    </div>
+  </div>
+
+  <div class="diagram-card">
+    <h3>dbt K8s Job Pattern — Mỗi lần run = 1 K8s Job</h3>
+    <div class="mermaid">
+graph LR
+    subgraph HOST["Developer (host machine)"]
+        S["./scripts/run-dbt.sh\ndev run"]
+    end
+
+    subgraph K8S["Kubernetes — data-modeling namespace"]
+        subgraph CM["ConfigMap: dbt-project"]
+            CM1["dbt_project.yml"]
+            CM2["sources.yml"]
+            CM3["stg_products.sql"]
+            CM4["products_by_category.sql"]
+            CM5["schema.yml (×2)"]
+            CM6["profiles.yml (generated)\nhost: spark-thrift-server.data-modeling.svc\nschema: dbt_dev\nthreads: 1"]
+        end
+        subgraph JOB["K8s Job: dbt-run-timestamp (ttl=300s)"]
+            IC["initContainer: busybox\nmkdir + cp files từ ConfigMap\n→ /dbt/models/staging/\n→ /dbt/models/marts/\n→ /profiles/profiles.yml"]
+            MC["Main container: python:3.11-slim\n1. pip install dbt-core<2.0.0 dbt-spark[PyHive]\n2. dbt run --profiles-dir /profiles --project-dir /dbt"]
+        end
+    end
+
+    subgraph THRIFT["Spark Thrift Server\nport 10000"]
+        SQL["Execute SQL:\n• CREATE VIEW dbt_dev.stg_products\n• CREATE TABLE dbt_dev.products_by_category\n  USING iceberg"]
+    end
+
+    S -->|"1. create/update"| CM
+    S -->|"2. create"| JOB
+    IC -->|"3. setup complete"| MC
+    CM -->|"mount"| IC
+    MC -->|"4. thrift connect"| THRIFT
+    THRIFT -->|"5. write Iceberg table"| MINIO["MinIO\ns3a://warehouse/dbt/"]
+
+    classDef host fill:#FFF3E0,stroke:#FF8F00
+    classDef k8s fill:#E8EAF6,stroke:#3F51B5
+    classDef thrift fill:#E3F2FD,stroke:#1976D2
+    classDef storage fill:#E0F2F1,stroke:#00897B
+    class S host
+    class CM,JOB,IC,MC k8s
+    class THRIFT,SQL thrift
+    class MINIO storage
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════ DEPLOY FLOW -->
+<div class="section" id="deploy-flow">
+  <div class="section-title">🚀 Helmfile Deploy Flow — Cơ chế Build & Deploy</div>
+  <div class="section-desc">Luồng deploy từ single source of truth (environments/*.yaml) qua Go template rendering đến K8s resources.</div>
+
+  <div class="diagram-card">
+    <h3>Helmfile → K8s Resource Pipeline</h3>
+    <div class="mermaid">
+graph TD
+    ENV["📄 environments/dev.yaml<br/><b>SINGLE SOURCE OF TRUTH</b><br/>minio.mode: standalone<br/>kafka.replicaCount: 1<br/>nessie.storage: IN_MEMORY<br/>sparkThriftServer.sparkMaster: local[2]<br/>dbt.schema: dbt_dev"]
+
+    SPARK_PROF["📄 spark-profiles/dev.yaml<br/>profiles:\n  small: {driver: 1c/1g, executor: 1×1×1g}\n  medium: {driver: 2c/2g, executor: 2×2×2g}"]
+
+    ENV -->|"helmfile -e dev"| HELMFILE
+    SPARK_PROF -->|"bind to .Values"| HELMFILE
+
+    HELMFILE["⚙️ helmfile.yaml.gotmpl<br/>+ environments binding<br/>= .Values context"]
+
+    HELMFILE -->|"render gotmpl"| GOTMPL
+    HELMFILE -->|"load base values"| BASE
+
+    GOTMPL["🔧 values/env/minio.yaml.gotmpl<br/>mode: {{ .Values.minio.mode }}<br/>rootUser: {{ .Values.minio.auth.rootUser }}<br/>→ mode: standalone\n→ rootUser: admin"]
+
+    BASE["📋 values/base/minio.yaml<br/>buckets: [warehouse]\nservice.type: ClusterIP\nimage: minio/minio:latest"]
+
+    GOTMPL -->|"merge"| MERGE
+    BASE -->|"merge"| MERGE
+
+    MERGE["🔀 Merged Helm Values<br/>mode: standalone\nbuckets: [warehouse]\nrootUser: admin\nstorage: 5Gi"]
+
+    MERGE -->|"helm template"| TEMPLATE
+
+    TEMPLATE["📄 Rendered K8s YAML<br/>apiVersion: apps/v1\nkind: StatefulSet\nmetadata.name: minio\nspec.replicas: 1\nspec.volumeClaimTemplates:\n  storage: 5Gi"]
+
+    TEMPLATE -->|"kubectl apply"| K8S
+
+    K8S["☸️ Kubernetes Resources Created\n• StatefulSet: minio (1 replica)\n• Service: minio (ClusterIP 9000+9001)\n• Service: minio-console (NodePort 30901)\n• PVC: export-minio-0 (5Gi)\n• Secret: minio-credentials"]
+
+    classDef input fill:#FFF3E0,stroke:#FF8F00
+    classDef process fill:#E8EAF6,stroke:#3F51B5
+    classDef output fill:#E0F2F1,stroke:#00897B
+    class ENV,SPARK_PROF input
+    class HELMFILE,GOTMPL,BASE,MERGE,TEMPLATE process
+    class K8S output
+    </div>
+  </div>
+
+  <div class="diagram-card">
+    <h3>Dev vs UAT vs Prod — Cùng code, khác values</h3>
+    <div class="mermaid">
+graph LR
+    subgraph SAME["Cùng 1 codebase (không thay đổi)"]
+        CHART["Helm Charts\n(charts/spark-thrift-server/\ncharts/spark-job/)"]
+        TEMPLATE["Templates\n(deployment.yaml\nservice.yaml\nrbac.yaml)"]
+        BASE["values/base/*.yaml\n(static config)"]
+    end
+
+    subgraph ENV_FILES["Chỉ thay đổi environments/*.yaml"]
+        DEV["environments/dev.yaml\nsparkMaster: local[2]\nreplicas: 1\ndynamicAllocation.enabled: false\ndbt.threads: 1\ndbt.schema: dbt_dev"]
+        UAT["environments/uat.yaml\nsparkMaster: k8s://...\nreplicas: 1\nmaxExecutors: 2\ndbt.threads: 2\ndbt.schema: dbt_uat"]
+        PROD["environments/prod.yaml\nsparkMaster: k8s://...\nreplicas: 1\nmaxExecutors: 8\ndbt.threads: 4\ndbt.schema: dbt_prod"]
+    end
+
+    CHART --> DEV_OUT
+    CHART --> UAT_OUT
+    CHART --> PROD_OUT
+    DEV --> DEV_OUT
+    UAT --> UAT_OUT
+    PROD --> PROD_OUT
+
+    DEV_OUT["🖥️ Dev Deployment\n1 pod, local[2]\nno executors\nIN_MEMORY Nessie"]
+    UAT_OUT["🧪 UAT Deployment\nk8s:// mode\n0-2 executor pods\nROCKSDB Nessie"]
+    PROD_OUT["🏭 Prod Deployment\nk8s:// mode\n0-8 executor pods\nROCKSDB Nessie\nDistributed MinIO"]
+
+    classDef same fill:#E8EAF6,stroke:#3F51B5
+    classDef env fill:#FFF3E0,stroke:#FF8F00
+    classDef out fill:#E8F5E9,stroke:#388E3C
+    class CHART,TEMPLATE,BASE same
+    class DEV,UAT,PROD env
+    class DEV_OUT,UAT_OUT,PROD_OUT out
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════ STATUS -->
+<div class="section" id="status">
+  <div class="section-title">📋 Component Status — Hiện tại</div>
+
+  <div class="diagram-card">
+    <table class="status-table">
+      <thead>
+        <tr>
+          <th>Component</th>
+          <th>Version</th>
+          <th>Namespace</th>
+          <th>Status</th>
+          <th>Verified by</th>
+          <th>Tương tác chính</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>Kind Cluster</strong></td>
+          <td>k8s v1.29</td>
+          <td>cluster</td>
+          <td><span class="badge badge-green">✅ Running</span></td>
+          <td>kubectl get nodes</td>
+          <td>Host machine Docker</td>
+        </tr>
+        <tr>
+          <td><strong>MinIO</strong></td>
+          <td>bitnami/minio 5.4.0</td>
+          <td>data-storage</td>
+          <td><span class="badge badge-green">✅ Running</span></td>
+          <td>Iceberg data files visible in UI</td>
+          <td>Spark S3A, Nessie warehouse</td>
+        </tr>
+        <tr>
+          <td><strong>Strimzi Operator</strong></td>
+          <td>0.51.0</td>
+          <td>data-ingestion</td>
+          <td><span class="badge badge-green">✅ Running</span></td>
+          <td>Kafka cluster READY=True</td>
+          <td>Kafka Cluster CRD</td>
+        </tr>
+        <tr>
+          <td><strong>Kafka Cluster</strong></td>
+          <td>Kafka 3.7.0</td>
+          <td>data-ingestion</td>
+          <td><span class="badge badge-green">✅ Running</span></td>
+          <td>kubectl get kafka</td>
+          <td>Debezium, NiFi, Airflow</td>
+        </tr>
+        <tr>
+          <td><strong>Spark Operator</strong></td>
+          <td>2.5.0</td>
+          <td>data-processing</td>
+          <td><span class="badge badge-green">✅ Running</span></td>
+          <td>SparkApplication CRD available</td>
+          <td>SparkApplication Jobs</td>
+        </tr>
+        <tr>
+          <td><strong>Nessie</strong></td>
+          <td>0.107.9</td>
+          <td>data-modeling</td>
+          <td><span class="badge badge-green">✅ Running</span></td>
+          <td>API /v2/config + /v2/trees/main/entries</td>
+          <td>Spark jobs, Thrift Server, dbt</td>
+        </tr>
+        <tr>
+          <td><strong>Spark Thrift Server</strong></td>
+          <td>Spark 3.5.3</td>
+          <td>data-modeling</td>
+          <td><span class="badge badge-green">✅ Running</span></td>
+          <td>dbt run PASS=2</td>
+          <td>dbt (thrift:10000)</td>
+        </tr>
+        <tr>
+          <td><strong>dbt Jobs</strong></td>
+          <td>dbt-core 1.11.11</td>
+          <td>data-modeling</td>
+          <td><span class="badge badge-green">✅ Verified</span></td>
+          <td>run PASS=2, test PASS=13</td>
+          <td>Spark Thrift Server, Nessie, MinIO</td>
+        </tr>
+        <tr>
+          <td><strong>Debezium CDC</strong></td>
+          <td>3.0.0</td>
+          <td>data-ingestion</td>
+          <td><span class="badge badge-blue">📋 Defined</span></td>
+          <td>—</td>
+          <td>PostgreSQL → Kafka</td>
+        </tr>
+        <tr>
+          <td><strong>Apache NiFi</strong></td>
+          <td>1.23.2</td>
+          <td>data-ingestion</td>
+          <td><span class="badge badge-blue">📋 Defined</span></td>
+          <td>—</td>
+          <td>Kafka, MinIO</td>
+        </tr>
+        <tr>
+          <td><strong>Apache Airflow</strong></td>
+          <td>2.x (chart 1.14.0)</td>
+          <td>data-orchestration</td>
+          <td><span class="badge badge-blue">📋 Defined</span></td>
+          <td>—</td>
+          <td>Spark jobs, dbt, Kafka</td>
+        </tr>
+        <tr>
+          <td><strong>DataHub</strong></td>
+          <td>latest</td>
+          <td>data-governance</td>
+          <td><span class="badge badge-blue">📋 Defined</span></td>
+          <td>—</td>
+          <td>Nessie metadata, Airflow lineage</td>
+        </tr>
+        <tr>
+          <td><strong>Prometheus + Grafana</strong></td>
+          <td>kube-prometheus-stack 60.0.0</td>
+          <td>data-observability</td>
+          <td><span class="badge badge-blue">📋 Defined</span></td>
+          <td>—</td>
+          <td>All components metrics</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════ DEBEZIUM -->
+<div class="section" id="debezium">
+  <div class="section-title">🔄 Debezium CDC — Change Data Capture Pipeline</div>
+  <div class="section-desc">Bắt mọi thay đổi từ PostgreSQL WAL (Write-Ahead Log) → Kafka topics → real-time downstream consumers.</div>
+
+  <div class="diagram-card">
+    <h3>CDC Architecture — PostgreSQL → Kafka</h3>
+    <div class="mermaid">
+sequenceDiagram
+    participant PG as PostgreSQL (demo-postgres)<br/>demo-db:5432
+    participant WAL as PostgreSQL WAL<br/>(Write-Ahead Log)
+    participant DEB as Debezium Connect<br/>data-ingestion:8083
+    participant SMT as ExtractNewRecordState<br/>(Single Message Transform)
+    participant KAFKA as Kafka Topics<br/>demo-db.public.*
+    participant DOWN as Downstream<br/>(Spark / NiFi)
+
+    Note over PG,DOWN: Phase 1 — Initial Snapshot (connector start lần đầu)
+    DEB->>PG: Connect via replication protocol
+    DEB->>PG: Create replication slot 'debezium_slot'
+    PG->>WAL: Start holding WAL from this point
+    DEB->>PG: SELECT * FROM orders (full snapshot)
+    PG-->>DEB: All existing rows (op=r, read)
+    DEB->>SMT: Apply ExtractNewRecordState transform
+    SMT-->>DEB: Flat JSON: {id, name, price, ...}
+    DEB->>KAFKA: Publish to demo-db.public.products (5 msgs)
+    DEB->>KAFKA: Publish to demo-db.public.orders (4 msgs)
+
+    Note over PG,DOWN: Phase 2 — Ongoing CDC Streaming
+    PG->>WAL: INSERT orders (new order)
+    WAL->>DEB: Stream WAL record
+    DEB->>SMT: Wrap: {before: null, after: {row}, op: c}
+    SMT-->>DEB: Flat: {id, customer_id, ..., __op: c, __ts_ms: ...}
+    DEB->>KAFKA: Publish to demo-db.public.orders (op=c)
+
+    PG->>WAL: UPDATE products SET stock=49
+    WAL->>DEB: Stream WAL record
+    DEB->>SMT: Wrap: {before: {stock:50}, after: {stock:49}, op: u}
+    SMT-->>DEB: Flat: {id, ..., stock:49, __op: u}
+    DEB->>KAFKA: Publish to demo-db.public.products (op=u)
+
+    KAFKA-->>DOWN: Stream CDC events (real-time, <1s latency)
+    </div>
+  </div>
+
+  <div class="grid-2">
+    <div class="diagram-card">
+      <h3>K8s Resources — Debezium Stack</h3>
+      <div class="mermaid">
+graph TD
+    subgraph DEBEZIUM["data-ingestion namespace"]
+        PG_CM["ConfigMap: demo-postgres-init\n01-init.sql:\n• CREATE USER debezium WITH REPLICATION\n• CREATE PUBLICATION debezium_pub\n• Seed 5 products, 4 orders"]
+        PG["Deployment: demo-postgres\nimage: postgres:16\nargs: wal_level=logical\nmax_replication_slots=5"]
+        PG_SVC["Service: demo-postgres\nClusterIP :5432"]
+
+        DEB["Deployment: debezium-connect\nimage: quay.io/debezium/connect:3.0.0.Final\nenv: BOOTSTRAP_SERVERS\nCONFIG/OFFSET/STATUS_STORAGE_TOPIC"]
+        DEB_SVC["Service: debezium-connect\nClusterIP :8083 (REST API)"]
+
+        CC["ConfigMap: connector-config\nconnector.json:\n• PostgresConnector config\n• tableInclude, topicPrefix\n• publication.name, slot.name\n• snapshot.mode: initial\n• transforms: unwrap"]
+        JOB["Job: register-connector\n(Helm hook post-install/upgrade)\ncurlimages/curl\nPOST /connectors (idempotent)\ninitContainer: wait Connect ready"]
+    end
+
+    subgraph KAFKA["data-ingestion namespace"]
+        KTOPICS["Kafka Topics (auto-created):\n• demo-db.public.orders\n• demo-db.public.products\n• debezium-connect-configs (internal)\n• debezium-connect-offsets (internal)\n• debezium-connect-status (internal)"]
+    end
+
+    PG_CM --> PG
+    PG --> PG_SVC
+    PG_SVC --> DEB
+    DEB --> DEB_SVC
+    CC --> JOB
+    DEB_SVC --> JOB
+    DEB --> KTOPICS
+
+    classDef pg fill:#E3F2FD,stroke:#1976D2
+    classDef deb fill:#FFEBEE,stroke:#D32F2F
+    classDef kafka fill:#FFF3E0,stroke:#FF8F00
+    class PG_CM,PG,PG_SVC pg
+    class DEB,DEB_SVC,CC,JOB deb
+    class KTOPICS kafka
+      </div>
+    </div>
+
+    <div class="diagram-card">
+      <h3>Kafka Message Format — Before vs After Transform</h3>
+      <div class="mermaid">
+graph TD
+    RAW["Raw Debezium Message (before SMT)\n{\n  'before': {'id':1,'name':'Laptop','stock':50},\n  'after':  {'id':1,'name':'Laptop','stock':49},\n  'source': {'table':'products','db':'demodb',...},\n  'op': 'u',\n  'ts_ms': 1718000000000\n}"]
+
+    ARROW["⬇ ExtractNewRecordState Transform\n(unwrap SMT)"]
+
+    FLAT["Flat Message (after SMT) — easier to consume\n{\n  'id': 1,\n  'name': 'Laptop Pro 16',\n  'category': 'electronics',\n  'price': 1299.99,\n  'stock': 49,\n  'updated_at': '2024-...',\n  '__op': 'u',\n  '__ts_ms': 1718000000000\n}"]
+
+    DELETE["DELETE event (delete.handling.mode=rewrite)\n{\n  'id': 1,\n  'name': 'Laptop Pro 16',\n  ... all fields null ...,\n  '__deleted': 'true',\n  '__op': 'd',\n  '__ts_ms': 1718000000000\n}"]
+
+    RAW --> ARROW
+    ARROW --> FLAT
+    ARROW --> DELETE
+
+    classDef raw fill:#FFEBEE,stroke:#D32F2F
+    classDef flat fill:#E8F5E9,stroke:#388E3C
+    classDef del fill:#FFF3E0,stroke:#FF8F00
+    class RAW raw
+    class FLAT flat
+    class DELETE del
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════ NIFI -->
+<div class="section" id="nifi">
+  <div class="section-title">🔁 Apache NiFi — Visual Data Flow Platform</div>
+  <div class="section-desc">Low-code drag-and-drop data integration: Kafka → transform → MinIO, REST API ingestion, file routing.</div>
+
+  <div class="diagram-card">
+    <h3>NiFi Processor Flow — Kafka CDC → MinIO</h3>
+    <div class="mermaid">
+graph LR
+    subgraph SOURCE["Source Processors"]
+        CK["ConsumeKafka\nBrokers: kafka-cluster-kafka-bootstrap:9092\nTopic: demo-db.public.products\nConsumer Group: nifi-cdc-consumer"]
+    end
+
+    subgraph TRANSFORM["Transform Processors"]
+        RT["RouteOnAttribute\nRoute by ${kafka.topic}\nor ${__op} value"]
+        JT["JoltTransformJSON\nRename / restructure fields\n(no code needed)"]
+        CV["ConvertRecord\nJSON → Parquet\n(Record reader/writer)"]
+    end
+
+    subgraph SINK["Sink Processors"]
+        S3["PutS3ObjectV2\nBucket: warehouse\nKey: nifi/${date}/${filename}.parquet\nEndpoint: http://minio.data-storage.svc:9000\nAccess Key: admin"]
+        PK["PublishKafka\nTopic: nifi-enriched\n(fan-out downstream)"]
+    end
+
+    CK -->|"FlowFile\ncontent=JSON\nattr: kafka.topic\nattr: kafka.offset"| RT
+    RT -->|"op=c or op=u"| JT
+    RT -->|"op=d (delete)"| PK
+    JT --> CV
+    CV --> S3
+    S3 -->|"Success"| DONE["✅ Files in MinIO"]
+    S3 -->|"Failure"| RETRY["Retry queue\n(back pressure)"]
+
+    classDef source fill:#E0F7FA,stroke:#00838F
+    classDef transform fill:#E3F2FD,stroke:#1976D2
+    classDef sink fill:#E8F5E9,stroke:#388E3C
+    class CK source
+    class RT,JT,CV transform
+    class S3,PK sink
+    </div>
+  </div>
+
+  <div class="grid-2">
+    <div class="diagram-card">
+      <h3>K8s Resources — NiFi</h3>
+      <div class="mermaid">
+graph TD
+    subgraph K8S["data-ingestion namespace"]
+        STS["StatefulSet: nifi\nimage: apache/nifi:1.23.2\nreplicas: 1\nHTTPS :8443\nauto-generate SSL cert"]
+        PVC["PVC: data-nifi-0\n5Gi (dev) / 50Gi (prod)\nSubPaths:\n• conf/ (flow.xml.gz — pipeline def)\n• content_repository/\n• flowfile_repository/\n• provenance_repository/\n• logs/"]
+        SVC["Service: nifi\nClusterIP :8443 (HTTPS)\nNodePort: 30800 (dev — không accessible trên Kind/macOS)\n→ dùng port-forward"]
+        HLESS["Headless Service: nifi-headless\nClusterIP: None\nnode-to-node cluster comm"]
+        PROBE["startupProbe:\nGET /nifi\nfailureThreshold: 60 × 10s = 600s\n(NiFi start mất 2-4 phút:\ngenerate SSL + init flow)"]
+    end
+
+    STS --> PVC
+    STS --> SVC
+    STS --> HLESS
+    STS -.-> PROBE
+
+    classDef main fill:#E0F7FA,stroke:#00838F,font-weight:bold
+    classDef storage fill:#E8F5E9,stroke:#388E3C
+    classDef svc fill:#E3F2FD,stroke:#1976D2
+    class STS main
+    class PVC storage
+    class SVC,HLESS,PROBE svc
+      </div>
+    </div>
+
+    <div class="diagram-card">
+      <h3>NiFi Access — Port-forward (Kind/macOS)</h3>
+      <div class="mermaid">
+graph TD
+    MAC["macOS Host\nbrowser: https://localhost:8443/nifi"]
+    PF["kubectl port-forward\nsvc/nifi 8443:8443\n-n data-ingestion"]
+    K8S_SVC["K8s Service: nifi\nClusterIP :8443"]
+    POD["Pod: nifi-0\nNiFi HTTPS server :8443\nwebProxyHost: localhost:8443"]
+
+    MAC -->|"HTTPS :8443"| PF
+    PF -->|"forward"| K8S_SVC
+    K8S_SVC --> POD
+
+    NOTE["⚠️ NodePort 30800 KHÔNG hoạt động\ntrên Kind cluster trên macOS:\nDocker network không bridge\ntới host interface trực tiếp.\nPort-forward là cách duy nhất."]
+
+    classDef warn fill:#FFF9C4,stroke:#F9A825
+    class NOTE warn
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════ AIRFLOW -->
+<div class="section" id="airflow">
+  <div class="section-title">🔧 Apache Airflow — DAG-based Workflow Orchestration</div>
+  <div class="section-desc">KubernetesExecutor: mỗi task = 1 K8s Pod. Orchestrate Spark jobs, dbt runs, MinIO operations.</div>
+
+  <div class="diagram-card">
+    <h3>Airflow Architecture — KubernetesExecutor Mode</h3>
+    <div class="mermaid">
+graph TB
+    subgraph USER["Developer"]
+        UI["Airflow Web UI\nhttp://localhost:8080\nadmin / airflow-dev"]
+        DEPLOY["./scripts/deploy-dags.sh dev\nkubectl cp dags/*.py → PVC"]
+    end
+
+    subgraph AIRFLOW["data-orchestration namespace"]
+        SCH["Scheduler\n• Parse DAG files từ PVC\n• Schedule runs\n• Create task pods via K8s API\n• Poll task pod status"]
+        WEB["Webserver (Gunicorn)\n• DAG graph UI\n• Trigger / monitor\n• View logs (từ MinIO remote)"]
+        TRG["Triggerer\n• Handle deferrable operators\n• Poll K8s for Spark job status\n• Async — không block scheduler"]
+        PG["PostgreSQL\n• DAG metadata\n• Task instances\n• XCom values\n• Connections + Variables"]
+        PVC["DAG PVC (2Gi)\n• flow .py files\n• Mount: scheduler + all task pods"]
+    end
+
+    subgraph TASKS["KubernetesExecutor Task Pods (dynamic)"]
+        T1["Task Pod: hello\napache/airflow:2.9.2\nBashOperator / PythonOperator"]
+        T2["Task Pod: spark-submit\napache/airflow:2.9.2\nSparkKubernetesOperator\n→ creates SparkApplication CR"]
+        T3["Task Pod: minio-op\napache/airflow:2.9.2\nS3Hook → boto3 → MinIO"]
+    end
+
+    subgraph DOWNSTREAM["Other Namespaces"]
+        SPARK["Spark Operator\ndata-processing\nSparkApplication CR"]
+        MINIO["MinIO\ndata-storage:9000\nS3-compatible API"]
+    end
+
+    DEPLOY --> PVC
+    UI --> WEB
+    WEB --> SCH
+    SCH --> PVC
+    SCH -->|"kubectl apply Pod"| T1
+    SCH -->|"kubectl apply Pod"| T2
+    SCH -->|"kubectl apply Pod"| T3
+    TRG -.->|"poll K8s API"| T2
+    T2 -->|"create SparkApplication"| SPARK
+    T3 -->|"S3Hook"| MINIO
+    PG -.-> SCH
+    PG -.-> TRG
+
+    classDef airflow fill:#FFF3E0,stroke:#FF8F00
+    classDef task fill:#E8F5E9,stroke:#388E3C
+    classDef down fill:#E3F2FD,stroke:#1976D2
+    classDef user fill:#F3E5F5,stroke:#7B1FA2
+    class SCH,WEB,TRG,PG,PVC airflow
+    class T1,T2,T3 task
+    class SPARK,MINIO down
+    class UI,DEPLOY user
+    </div>
+  </div>
+
+  <div class="diagram-card">
+    <h3>DAG 04: Full Data Pipeline — Task Dependencies</h3>
+    <div class="mermaid">
+graph LR
+    subgraph INGEST["[1] Ingest"]
+        A["ingest_raw_data\nPythonOperator\nS3Hook → MinIO landing\nGenerate synthetic sales JSON\nReturn: {bucket, key, row_count}"]
+    end
+
+    subgraph PROCESS["[2] Process"]
+        B["check_new_data\nShortCircuitOperator\nrow_count > 0?\n→ proceed or skip downstream"]
+        C["submit_etl\nSparkKubernetesOperator\nCreate SparkApplication CR\nTriggerer poll K8s async"]
+    end
+
+    subgraph VERIFY["[3] Verify"]
+        D["verify_output\nPythonOperator\nS3Hook → check warehouse/\nList objects, assert count > 0"]
+    end
+
+    subgraph NOTIFY["[4] Notify"]
+        E["notify_completion\nPythonOperator\nLog summary, XCom pull\ntrigger_rule: ALL_DONE\n(chạy dù upstream fail)"]
+    end
+
+    A -->|"XCom: {key, row_count}"| B
+    B -->|"row_count > 0"| C
+    C -->|"Spark COMPLETED"| D
+    D --> E
+    B -.->|"skip (no new data)"| E
+
+    classDef ingest fill:#E0F7FA,stroke:#00838F
+    classDef process fill:#E8EAF6,stroke:#3F51B5
+    classDef verify fill:#E8F5E9,stroke:#388E3C
+    classDef notify fill:#FFF3E0,stroke:#FF8F00
+    class A ingest
+    class B,C process
+    class D verify
+    class E notify
+    </div>
+  </div>
+
+  <div class="grid-2">
+    <div class="diagram-card">
+      <h3>KubernetesExecutor — Task Pod Lifecycle</h3>
+      <div class="mermaid">
+sequenceDiagram
+    participant SCH as Airflow Scheduler
+    participant K8S as Kubernetes API
+    participant POD as Task Pod
+    participant PG as PostgreSQL (metadata)
+
+    SCH->>PG: Check: any tasks ready?
+    PG-->>SCH: Task "submit_etl" ready (upstream done)
+    SCH->>K8S: kubectl apply Pod (airflow-spark-dag-submit-etl-xxx)
+    K8S-->>SCH: Pod created
+
+    Note over POD: Pod starts: apache/airflow:2.9.2
+    POD->>POD: pip install providers (~30s cached)
+    POD->>POD: airflow tasks run 02_spark_pi_dag submit_spark_pi <run_id>
+    POD->>K8S: Create SparkApplication CR
+    K8S-->>POD: SparkApplication created
+    POD->>K8S: Poll: SparkApplication status?
+    K8S-->>POD: STATUS=RUNNING
+    POD->>K8S: Poll again...
+    K8S-->>POD: STATUS=COMPLETED
+
+    POD->>PG: Push XCom: {spark_job_name, status}
+    POD->>POD: Exit 0
+    K8S->>K8S: delete_worker_pods=True → delete pod
+
+    SCH->>K8S: Poll: Pod status?
+    K8S-->>SCH: Pod SUCCEEDED
+    SCH->>PG: Update task_instance: SUCCESS
+    SCH->>PG: Trigger downstream tasks
+      </div>
+    </div>
+
+    <div class="diagram-card">
+      <h3>Connections & Variables — Auto-inject via env vars</h3>
+      <div class="mermaid">
+graph TD
+    subgraph ENV_FILE["environments/dev.yaml\n(Single Source of Truth)"]
+        E1["minio.auth.rootUser: admin\nminio.auth.rootPassword: minio-dev-password"]
+        E2["global.env: dev"]
+    end
+
+    subgraph GOTMPL["values/env/airflow.yaml.gotmpl"]
+        G1["env:\n- AIRFLOW_CONN_MINIO_S3:\n  {conn_type: aws, login: admin,\n   password: minio-dev-password,\n   extra: {endpoint_url: http://minio...}}"]
+        G2["- AIRFLOW_CONN_KUBERNETES_DEFAULT:\n  {conn_type: kubernetes,\n   extra: {in_cluster: True}}"]
+        G3["- AIRFLOW_CONN_KAFKA_DEFAULT:\n  {conn_type: kafka,\n   extra: {bootstrap.servers: ...}}"]
+        G4["- AIRFLOW_VAR_ENV: dev\n- AIRFLOW_VAR_SPARK_PROFILES: {...}\n- AIRFLOW_VAR_MINIO_ENDPOINT: ..."]
+    end
+
+    subgraph AIRFLOW_POD["Task Pod env vars"]
+        P1["AIRFLOW_CONN_MINIO_S3=...\nAIRFLOW_CONN_KUBERNETES_DEFAULT=...\nAIRFLOW_VAR_ENV=dev\n..."]
+    end
+
+    subgraph DAG_CODE["DAG code"]
+        D1["S3Hook(aws_conn_id='minio_s3')\n→ reads AIRFLOW_CONN_MINIO_S3\n→ boto3 client MinIO"]
+        D2["SparkKubernetesOperator(\n  kubernetes_conn_id='kubernetes_default')\n→ reads AIRFLOW_CONN_KUBERNETES_DEFAULT\n→ in-cluster K8s client"]
+        D3["Variable.get('spark_profiles')\n→ reads AIRFLOW_VAR_SPARK_PROFILES\n→ build Spark spec"]
+    end
+
+    E1 --> G1
+    E2 --> G4
+    G1 --> P1; G2 --> P1; G3 --> P1; G4 --> P1
+    P1 --> D1; P1 --> D2; P1 --> D3
+
+    classDef env fill:#FFF3E0,stroke:#FF8F00
+    classDef gotmpl fill:#E8EAF6,stroke:#3F51B5
+    classDef pod fill:#E8F5E9,stroke:#388E3C
+    classDef dag fill:#E0F7FA,stroke:#00838F
+    class E1,E2 env
+    class G1,G2,G3,G4 gotmpl
+    class P1 pod
+    class D1,D2,D3 dag
+      </div>
+    </div>
+  </div>
+</div>
+
+</div><!-- /container -->
+
+<script>
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: 'default',
+    themeVariables: {
+      primaryColor: '#E8EAF6',
+      primaryBorderColor: '#3F51B5',
+      primaryTextColor: '#1A237E',
+      lineColor: '#9E9E9E',
+      secondaryColor: '#E0F2F1',
+      tertiaryColor: '#FFF3E0',
+    },
+    flowchart: { htmlLabels: true, curve: 'basis' },
+    sequence: { actorMargin: 80, messageMargin: 40 },
+  });
+
+  // Highlight active nav
+  document.querySelectorAll('nav a').forEach(a => {
+    a.addEventListener('click', () => {
+      document.querySelectorAll('nav a').forEach(x => x.classList.remove('active'));
+      a.classList.add('active');
+    });
+  });
+</script>
+</body>
+</html>

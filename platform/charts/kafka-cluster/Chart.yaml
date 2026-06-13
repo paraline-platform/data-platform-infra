@@ -1,0 +1,11 @@
+apiVersion: v2
+name: kafka-cluster
+description: Kafka cluster CRDs managed by Strimzi Operator (KRaft mode, no ZooKeeper)
+type: application
+version: 0.1.0
+# Yêu cầu: strimzi-kafka-operator phải được deploy trước chart này
+# Lý do: chart này tạo Kafka CRDs, cần Strimzi CRD definitions có sẵn
+keywords:
+  - kafka
+  - strimzi
+  - messaging

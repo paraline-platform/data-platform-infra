@@ -1,0 +1,152 @@
+# LimitRange — Tự động gán default resources cho container không khai báo
+#
+# Vấn đề nếu không có LimitRange:
+#   ResourceQuota yêu cầu mọi pod phải có requests/limits
+#   Helm chart hooks (jobs, init containers) thường KHÔNG khai báo resources
+#   → K8s từ chối tạo pod → "must specify limits.cpu"
+#
+# Giải pháp với LimitRange:
+#   Container không có resources? → LimitRange tự động inject default
+#   → Pod được tạo → Quota được thỏa mãn
+#
+# Hệ quả: không còn lỗi "must specify" cho bất kỳ Helm chart nào nữa
+
+---
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: default-limits
+  namespace: data-storage
+spec:
+  limits:
+    - type: Container
+      # default: áp dụng khi container không khai báo limits
+      default:
+        cpu: "200m"
+        memory: "256Mi"
+      # defaultRequest: áp dụng khi container không khai báo requests
+      defaultRequest:
+        cpu: "50m"
+        memory: "64Mi"
+      # max: không cho phép vượt quá giá trị này
+      max:
+        cpu: "4"
+        memory: "8Gi"
+      # min: không cho phép thấp hơn giá trị này
+      min:
+        cpu: "10m"
+        memory: "16Mi"
+
+---
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: default-limits
+  namespace: data-ingestion
+spec:
+  limits:
+    - type: Container
+      default:        { cpu: "200m", memory: "256Mi" }
+      defaultRequest: { cpu: "50m",  memory: "64Mi" }
+      max:            { cpu: "4",    memory: "8Gi" }
+      min:            { cpu: "10m",  memory: "16Mi" }
+
+---
+# data-processing: Spark driver/executor cần nhiều CPU hơn
+# default limit cao hơn để Spark pods không bị block bởi LimitRange
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: default-limits
+  namespace: data-processing
+spec:
+  limits:
+    - type: Container
+      default:        { cpu: "2",    memory: "2Gi" }
+      defaultRequest: { cpu: "100m", memory: "256Mi" }
+      max:            { cpu: "8",    memory: "16Gi" }
+      min:            { cpu: "10m",  memory: "16Mi" }
+
+---
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: default-limits
+  namespace: data-modeling
+spec:
+  limits:
+    - type: Container
+      default:        { cpu: "200m", memory: "256Mi" }
+      defaultRequest: { cpu: "50m",  memory: "64Mi" }
+      max:            { cpu: "2",    memory: "4Gi" }
+      min:            { cpu: "10m",  memory: "16Mi" }
+
+---
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: default-limits
+  namespace: data-governance
+spec:
+  limits:
+    - type: Container
+      default:        { cpu: "200m", memory: "256Mi" }
+      defaultRequest: { cpu: "50m",  memory: "64Mi" }
+      max:            { cpu: "4",    memory: "8Gi" }
+      min:            { cpu: "10m",  memory: "16Mi" }
+
+---
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: default-limits
+  namespace: data-orchestration
+spec:
+  limits:
+    - type: Container
+      default:        { cpu: "200m", memory: "256Mi" }
+      defaultRequest: { cpu: "50m",  memory: "64Mi" }
+      max:            { cpu: "4",    memory: "8Gi" }
+      min:            { cpu: "10m",  memory: "16Mi" }
+
+---
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: default-limits
+  namespace: data-observability
+spec:
+  limits:
+    - type: Container
+      default:        { cpu: "200m", memory: "256Mi" }
+      defaultRequest: { cpu: "50m",  memory: "64Mi" }
+      max:            { cpu: "2",    memory: "4Gi" }
+      min:            { cpu: "10m",  memory: "16Mi" }
+
+---
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: default-limits
+  namespace: data-ai
+spec:
+  limits:
+    - type: Container
+      default:        { cpu: "200m", memory: "256Mi" }
+      defaultRequest: { cpu: "50m",  memory: "64Mi" }
+      max:            { cpu: "4",    memory: "8Gi" }
+      min:            { cpu: "10m",  memory: "16Mi" }
+
+---
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: default-limits
+  namespace: data-infra
+spec:
+  limits:
+    - type: Container
+      default:        { cpu: "200m", memory: "256Mi" }
+      defaultRequest: { cpu: "50m",  memory: "64Mi" }
+      max:            { cpu: "2",    memory: "4Gi" }
+      min:            { cpu: "10m",  memory: "16Mi" }

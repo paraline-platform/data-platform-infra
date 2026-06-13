@@ -1,0 +1,143 @@
+{{- $isK8sMode := hasPrefix "k8s://" .Values.sparkMaster -}}
+{{- $maven := "https://repo1.maven.org/maven2" -}}
+{{- $iceberg := .Values.jars.icebergVersion -}}
+{{- $hadoopAws := .Values.jars.hadoopAwsVersion -}}
+{{- $sdk := .Values.jars.awsSdkVersion -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "spark-thrift-server.name" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "spark-thrift-server.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app: {{ include "spark-thrift-server.name" . }}
+  template:
+    metadata:
+      labels:
+        {{- include "spark-thrift-server.labels" . | nindent 8 }}
+    spec:
+      serviceAccountName: spark-thrift-server
+      initContainers:
+        - name: download-jars
+          image: busybox
+          command: [sh, -c]
+          args:
+            - |
+              set -e
+              mkdir -p /tmp/jars
+              MAVEN="{{ $maven }}"
+
+              echo "[1/6] iceberg-spark-runtime-3.5_2.12-{{ $iceberg }}.jar"
+              wget -q -O /tmp/jars/iceberg-spark-runtime-3.5_2.12-{{ $iceberg }}.jar \
+                "${MAVEN}/org/apache/iceberg/iceberg-spark-runtime-3.5_2.12/{{ $iceberg }}/iceberg-spark-runtime-3.5_2.12-{{ $iceberg }}.jar"
+
+              echo "[2/6] hadoop-aws-{{ $hadoopAws }}.jar"
+              wget -q -O /tmp/jars/hadoop-aws-{{ $hadoopAws }}.jar \
+                "${MAVEN}/org/apache/hadoop/hadoop-aws/{{ $hadoopAws }}/hadoop-aws-{{ $hadoopAws }}.jar"
+
+              echo "[3/6] aws-java-sdk-s3-{{ $sdk }}.jar"
+              wget -q -O /tmp/jars/aws-java-sdk-s3-{{ $sdk }}.jar \
+                "${MAVEN}/com/amazonaws/aws-java-sdk-s3/{{ $sdk }}/aws-java-sdk-s3-{{ $sdk }}.jar"
+
+              echo "[4/6] aws-java-sdk-core-{{ $sdk }}.jar"
+              wget -q -O /tmp/jars/aws-java-sdk-core-{{ $sdk }}.jar \
+                "${MAVEN}/com/amazonaws/aws-java-sdk-core/{{ $sdk }}/aws-java-sdk-core-{{ $sdk }}.jar"
+
+              echo "[5/6] aws-java-sdk-sts-{{ $sdk }}.jar"
+              wget -q -O /tmp/jars/aws-java-sdk-sts-{{ $sdk }}.jar \
+                "${MAVEN}/com/amazonaws/aws-java-sdk-sts/{{ $sdk }}/aws-java-sdk-sts-{{ $sdk }}.jar"
+
+              echo "[6/6] aws-java-sdk-dynamodb-{{ $sdk }}.jar"
+              wget -q -O /tmp/jars/aws-java-sdk-dynamodb-{{ $sdk }}.jar \
+                "${MAVEN}/com/amazonaws/aws-java-sdk-dynamodb/{{ $sdk }}/aws-java-sdk-dynamodb-{{ $sdk }}.jar"
+
+              echo "JARs ready:"; ls -lh /tmp/jars/
+          volumeMounts:
+            - name: jars
+              mountPath: /tmp/jars
+      containers:
+        - name: spark-thrift-server
+          image: {{ .Values.image.repository }}:{{ .Values.image.tag }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: [/bin/bash, -c]
+          args:
+            - |
+              JARS="/tmp/jars/iceberg-spark-runtime-3.5_2.12-{{ $iceberg }}.jar,\
+              /tmp/jars/hadoop-aws-{{ $hadoopAws }}.jar,\
+              /tmp/jars/aws-java-sdk-s3-{{ $sdk }}.jar,\
+              /tmp/jars/aws-java-sdk-core-{{ $sdk }}.jar,\
+              /tmp/jars/aws-java-sdk-sts-{{ $sdk }}.jar,\
+              /tmp/jars/aws-java-sdk-dynamodb-{{ $sdk }}.jar"
+              JARS=$(echo $JARS | tr -d ' ')
+              # Colon-separated: cho spark.driver.extraClassPath
+              # --jars đưa JARs vào SparkClassLoader (runtime)
+              # extraClassPath đưa vào JVM bootstrap classpath → ServiceLoader tìm được
+              CLASSPATH=$(echo $JARS | tr ',' ':')
+
+              exec /opt/spark/bin/spark-submit \
+                --class org.apache.spark.sql.hive.thriftserver.HiveThriftServer2 \
+                --master {{ .Values.sparkMaster }} \
+                --name spark-thrift-server \
+                --jars "$JARS" \
+                --conf "spark.sql.extensions=org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions" \
+                --conf "spark.sql.catalog.nessie=org.apache.iceberg.spark.SparkCatalog" \
+                --conf "spark.sql.catalog.nessie.catalog-impl=org.apache.iceberg.nessie.NessieCatalog" \
+                --conf "spark.sql.catalog.nessie.uri={{ .Values.nessie.uri }}" \
+                --conf "spark.sql.catalog.nessie.ref={{ .Values.nessie.ref }}" \
+                --conf "spark.sql.catalog.nessie.warehouse={{ .Values.nessie.warehouse }}" \
+                --conf "spark.sql.defaultCatalog=nessie" \
+                --conf "spark.hadoop.fs.s3a.endpoint={{ .Values.minio.endpoint }}" \
+                --conf "spark.hadoop.fs.s3a.access.key={{ .Values.minio.accessKey }}" \
+                --conf "spark.hadoop.fs.s3a.secret.key={{ .Values.minio.secretKey }}" \
+                --conf "spark.hadoop.fs.s3a.path.style.access=true" \
+                --conf "spark.hadoop.fs.s3a.impl=org.apache.hadoop.fs.s3a.S3AFileSystem" \
+                --conf "spark.hadoop.fs.s3a.connection.ssl.enabled=false" \
+                --conf "hive.server2.thrift.port={{ .Values.service.thriftPort }}" \
+                --conf "hive.server2.thrift.bind.host=0.0.0.0" \
+                --conf "spark.driver.extraClassPath=${CLASSPATH}" \
+                --conf "spark.driver.extraJavaOptions=-Dderby.system.home=/tmp/derby -Dderby.stream.error.file=/tmp/derby.log" \
+                {{- if $isK8sMode }}
+                --conf "spark.kubernetes.namespace={{ .Release.Namespace }}" \
+                --conf "spark.kubernetes.authenticate.driver.serviceAccountName=spark-thrift-server" \
+                --conf "spark.kubernetes.container.image={{ .Values.image.repository }}:{{ .Values.image.tag }}" \
+                --conf "spark.executor.cores={{ .Values.executor.cores }}" \
+                --conf "spark.executor.memory={{ .Values.executor.memory }}" \
+                {{- if .Values.dynamicAllocation.enabled }}
+                --conf "spark.dynamicAllocation.enabled=true" \
+                --conf "spark.dynamicAllocation.shuffleTracking.enabled={{ .Values.dynamicAllocation.shuffleTracking }}" \
+                --conf "spark.dynamicAllocation.minExecutors={{ .Values.dynamicAllocation.minExecutors }}" \
+                --conf "spark.dynamicAllocation.maxExecutors={{ .Values.dynamicAllocation.maxExecutors }}" \
+                --conf "spark.dynamicAllocation.executorIdleTimeout={{ .Values.dynamicAllocation.executorIdleTimeout }}" \
+                {{- end }}
+                {{- end }}
+                spark-internal
+          ports:
+            - containerPort: {{ .Values.service.thriftPort }}
+              name: thrift
+            - containerPort: {{ .Values.service.uiPort }}
+              name: spark-ui
+          # Thrift Server mất ~60-90s để start (JARs load + HiveServer2 init)
+          readinessProbe:
+            tcpSocket:
+              port: {{ .Values.service.thriftPort }}
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            failureThreshold: 12       # 12×10s = 2 phút timeout
+          livenessProbe:
+            tcpSocket:
+              port: {{ .Values.service.thriftPort }}
+            initialDelaySeconds: 90
+            periodSeconds: 30
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: jars
+              mountPath: /tmp/jars
+      volumes:
+        - name: jars
+          emptyDir: {}

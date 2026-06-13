@@ -1,0 +1,35 @@
+# Kafka Cluster — Base Values (config tĩnh, không thay đổi theo env)
+
+cluster:
+  name: data-platform    # Tên cluster — các app dùng: data-platform-kafka-bootstrap:9092
+
+# Topics mặc định cho Data Lakehouse Platform
+# Partition count: bội số của số brokers để phân phối đều
+topics:
+  # Raw events từ NiFi (batch ingestion)
+  - name: raw-events
+    partitions: 3
+    retentionMs: 604800000    # 7 ngày
+
+  # CDC events từ Debezium (database change capture)
+  # cleanup.policy: compact → chỉ giữ record mới nhất của mỗi key (như database)
+  - name: cdc-events
+    partitions: 3
+    retentionMs: -1           # Giữ mãi mãi (CDC log)
+    cleanupPolicy: compact
+
+  # Schema change events từ Debezium Schema History
+  - name: schema-changes
+    partitions: 1             # 1 partition = đảm bảo thứ tự tuyệt đối
+    retentionMs: -1
+    cleanupPolicy: compact
+
+  # Events đã được Spark xử lý (output)
+  - name: processed-events
+    partitions: 3
+    retentionMs: 604800000
+
+  # Dead Letter Queue — messages bị lỗi khi xử lý
+  - name: dlq-events
+    partitions: 1
+    retentionMs: 2592000000   # 30 ngày (cần review và reprocess thủ công)

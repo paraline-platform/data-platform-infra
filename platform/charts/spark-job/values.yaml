@@ -1,0 +1,68 @@
+# ============================================================
+# CHARTS/SPARK-JOB/VALUES.YAML — Default values
+# ============================================================
+# Overriding priority (thấp → cao):
+#   1. File này (defaults)
+#   2. platform/spark-profiles/<env>.yaml  (profiles)
+#   3. spark-jobs/<job-name>.yaml          (job config)
+#   4. --set profile=<size>               (CLI override)
+
+# --- Job identity ---
+name: ""                  # REQUIRED: tên SparkApplication
+namespace: data-processing
+
+# --- Container image ---
+image: "apache/spark:3.5.3"
+imagePullPolicy: IfNotPresent
+
+# --- Spark job config ---
+type: Scala               # Scala | Java | Python | R
+mode: cluster
+mainClass: ""             # Required cho Scala/Java
+mainApplicationFile: ""   # REQUIRED
+arguments: []
+sparkVersion: "3.5.3"
+
+# --- Lifecycle ---
+restartPolicy:
+  type: Never             # Never | OnFailure
+
+# --- Spark runtime config (key-value) ---
+sparkConf: {}
+
+# --- RBAC ---
+serviceAccount: spark-operator-spark
+
+# --- Active profile name ---
+# Override với: --set profile=medium
+profile: small
+
+# --- Resource profiles ---
+# Được override hoàn toàn bởi platform/spark-profiles/<env>.yaml
+# File này chỉ chứa fallback defaults (small) để chart valid khi test standalone
+profiles:
+  small:
+    driver:
+      cores: 1
+      coreLimit: "1"
+      memory: "512m"
+    executor:
+      instances: 1
+      cores: 1
+      coreLimit: "1"
+      memory: "512m"
+
+# --- Top-level volumes (spec.volumes — shared by driver and executor) ---
+# SparkApplication CRD: volumes phải khai báo ở đây, KHÔNG inside driver/executor
+volumes: []
+
+# --- Driver extras (optional, job-specific) ---
+# initContainers và volumeMounts đặt trong spec.driver
+driverExtras:
+  initContainers: []
+  volumeMounts: []
+
+# --- Executor extras (optional) ---
+executorExtras:
+  initContainers: []
+  volumeMounts: []

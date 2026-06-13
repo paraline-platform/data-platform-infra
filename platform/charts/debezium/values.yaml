@@ -1,0 +1,35 @@
+# Default values — override tại platform/values/base/debezium.yaml
+# và platform/values/env/debezium.yaml.gotmpl
+
+demoPostgres:
+  enabled: true
+  image:
+    repository: postgres
+    tag: "16"
+    pullPolicy: IfNotPresent
+  database: demodb
+  user: postgres
+  password: "postgres-dev-password"
+  debeziumUser: debezium
+  debeziumPassword: "debezium-dev-password"
+  resources:
+    requests: { cpu: "100m", memory: "256Mi" }
+    limits:   { cpu: "500m", memory: "512Mi" }
+
+connect:
+  image:
+    repository: quay.io/debezium/connect
+    tag: "3.0.0.Final"
+  replicas: 1
+  kafkaBootstrap: "data-platform-kafka-bootstrap:9092"
+  groupId: "debezium-connect-cluster"
+  resources:
+    requests: { cpu: "200m", memory: "512Mi" }
+    limits:   { cpu: "1",    memory: "1Gi" }
+
+connector:
+  enabled: true
+  name: "postgres-source"
+  tableInclude: "public.orders,public.products"
+  topicPrefix: "demo-db"
+  snapshotMode: "initial"

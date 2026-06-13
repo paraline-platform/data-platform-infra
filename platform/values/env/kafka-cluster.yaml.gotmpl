@@ -1,0 +1,22 @@
+{{/*
+  values/env/kafka-cluster.yaml.gotmpl
+  Dịch environments/dev.yaml → kafka-cluster chart values
+*/}}
+
+cluster:
+  version: {{ .Values.kafka.version | quote }}
+  replicas: {{ .Values.kafka.replicas }}
+  storage:
+    size: {{ .Values.kafka.storage }}
+    class: platform-standard
+  # replicationFactor = replicas (không thể replicate hơn số broker)
+  replicationFactor: {{ .Values.kafka.replicas }}
+  # minInsyncReplicas: dev=1 (1 broker), prod=2 (chịu được 1 broker down)
+  minInsyncReplicas: {{ if gt (int .Values.kafka.replicas) 1 }}2{{ else }}1{{ end }}
+  resources:
+    requests:
+      cpu: {{ .Values.kafka.resources.requests.cpu | quote }}
+      memory: {{ .Values.kafka.resources.requests.memory | quote }}
+    limits:
+      cpu: {{ .Values.kafka.resources.limits.cpu | quote }}
+      memory: {{ .Values.kafka.resources.limits.memory | quote }}

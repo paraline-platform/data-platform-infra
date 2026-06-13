@@ -1,0 +1,42 @@
+{{/*
+  values/env/minio.yaml.gotmpl
+  Dịch environments/dev.yaml (hoặc prod.yaml) → official minio/minio chart values
+*/}}
+
+mode: {{ .Values.minio.mode }}
+
+{{- if .Values.minio.auth.useExistingSecret }}
+existingSecret: "minio-credentials"
+{{- else }}
+rootUser: {{ .Values.minio.auth.rootUser | quote }}
+rootPassword: {{ .Values.minio.auth.rootPassword | quote }}
+{{- end }}
+
+persistence:
+  storageClass: "platform-retain"
+  size: {{ .Values.minio.storage }}
+  accessMode: ReadWriteOnce
+
+service:
+  type: {{ .Values.minio.serviceType }}
+  {{- if eq .Values.minio.serviceType "NodePort" }}
+  nodePort: {{ .Values.minio.nodePorts.api }}
+  {{- end }}
+
+consoleService:
+  type: {{ .Values.minio.serviceType }}
+  {{- if eq .Values.minio.serviceType "NodePort" }}
+  nodePort: {{ .Values.minio.nodePorts.console }}
+  {{- end }}
+
+resources:
+  requests:
+    memory: {{ .Values.minio.resources.requests.memory | quote }}
+    cpu: {{ .Values.minio.resources.requests.cpu | quote }}
+  limits:
+    memory: {{ .Values.minio.resources.limits.memory | quote }}
+    cpu: {{ .Values.minio.resources.limits.cpu | quote }}
+
+{{- if eq .Values.minio.mode "distributed" }}
+replicas: 4
+{{- end }}

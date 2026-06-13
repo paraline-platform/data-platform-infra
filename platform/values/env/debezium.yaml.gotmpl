@@ -1,0 +1,20 @@
+# ============================================================
+# DEBEZIUM ENV CONFIG — Dynamic values từ environments/*.yaml
+# ============================================================
+
+connect:
+  replicas: {{ .Values.debezium.connect.replicas | default 1 }}
+  kafkaBootstrap: "data-platform-kafka-bootstrap.{{ .Release.Namespace }}.svc.cluster.local:9092"
+  resources:
+    {{- toYaml .Values.debezium.connect.resources | nindent 4 }}
+
+demoPostgres:
+  enabled: {{ .Values.debezium.demoPostgres.enabled }}
+  password: {{ .Values.debezium.demoPostgres.password | quote }}
+  debeziumUser: {{ .Values.debezium.demoPostgres.debeziumUser | default "debezium" | quote }}
+  debeziumPassword: {{ .Values.debezium.demoPostgres.debeziumPassword | quote }}
+  resources:
+    {{- toYaml .Values.debezium.demoPostgres.resources | nindent 4 }}
+
+connector:
+  enabled: {{ .Values.debezium.connector.enabled | default true }}

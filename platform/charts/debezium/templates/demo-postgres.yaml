@@ -1,0 +1,155 @@
+{{- if .Values.demoPostgres.enabled }}
+# ============================================================
+# DEMO POSTGRESQL — CDC source database
+#
+# Cấu hình bắt buộc để Debezium đọc được WAL:
+#   wal_level=logical     → bật logical replication (mặc định là replica, không đủ)
+#   max_replication_slots → số slot tối đa (1 slot = 1 Debezium connector)
+#   max_wal_senders       → số WAL sender processes đồng thời
+#
+# Logical replication slot: Debezium tạo 1 slot, PostgreSQL giữ WAL
+# cho đến khi Debezium đọc xong. Quan trọng: phải monitor slot để
+# tránh WAL tích lũy quá nhiều khi Debezium offline.
+# ============================================================
+
+---
+# Init SQL: chạy tự động khi PostgreSQL start lần đầu
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: demo-postgres-init
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: demo-postgres
+data:
+  01-init.sql: |
+    -- 1. Tạo user debezium với quyền REPLICATION
+    --    REPLICATION privilege: cho phép kết nối vào WAL stream
+    CREATE USER {{ .Values.demoPostgres.debeziumUser }}
+      WITH REPLICATION LOGIN PASSWORD '{{ .Values.demoPostgres.debeziumPassword }}';
+
+    -- 2. Cho phép debezium user connect vào database
+    GRANT CONNECT ON DATABASE {{ .Values.demoPostgres.database }}
+      TO {{ .Values.demoPostgres.debeziumUser }};
+
+    -- 3. Tạo tables demo
+    CREATE TABLE IF NOT EXISTS orders (
+        id          SERIAL PRIMARY KEY,
+        customer_id INT NOT NULL,
+        product_id  INT NOT NULL,
+        quantity    INT NOT NULL,
+        total_price DECIMAL(10,2) NOT NULL,
+        status      VARCHAR(20) DEFAULT 'pending',
+        created_at  TIMESTAMP DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS products (
+        id         SERIAL PRIMARY KEY,
+        name       VARCHAR(100) NOT NULL,
+        category   VARCHAR(50),
+        price      DECIMAL(10,2) NOT NULL,
+        stock      INT DEFAULT 0,
+        updated_at TIMESTAMP DEFAULT NOW()
+    );
+
+    -- 4. Cho debezium SELECT trên tất cả tables (cần để snapshot initial data)
+    GRANT SELECT ON ALL TABLES IN SCHEMA public
+      TO {{ .Values.demoPostgres.debeziumUser }};
+    ALTER DEFAULT PRIVILEGES IN SCHEMA public
+      GRANT SELECT ON TABLES TO {{ .Values.demoPostgres.debeziumUser }};
+
+    -- 5. Tạo PUBLICATION — Debezium dùng pgoutput plugin cần publication
+    --    Publication khai báo "tables nào sẽ được replicate"
+    CREATE PUBLICATION debezium_pub FOR TABLE orders, products;
+
+    -- 6. Seed data để có gì đó để snapshot
+    INSERT INTO products (name, category, price, stock) VALUES
+        ('Laptop Pro 16',   'electronics', 1299.99,  50),
+        ('Wireless Mouse',  'electronics',   29.99, 200),
+        ('USB-C Hub',       'electronics',   49.99, 150),
+        ('Standing Desk',   'furniture',    599.99,  20),
+        ('Ergonomic Chair', 'furniture',    399.99,  30);
+
+    INSERT INTO orders (customer_id, product_id, quantity, total_price, status) VALUES
+        (101, 1, 1, 1299.99, 'completed'),
+        (102, 2, 2,   59.98, 'completed'),
+        (103, 3, 1,   49.99, 'pending'),
+        (101, 4, 1,  599.99, 'pending');
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: demo-postgres
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: demo-postgres
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: demo-postgres
+  template:
+    metadata:
+      labels:
+        app: demo-postgres
+    spec:
+      containers:
+        - name: postgres
+          image: "{{ .Values.demoPostgres.image.repository }}:{{ .Values.demoPostgres.image.tag }}"
+          imagePullPolicy: {{ .Values.demoPostgres.image.pullPolicy }}
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRES_DB
+              value: {{ .Values.demoPostgres.database | quote }}
+            - name: POSTGRES_USER
+              value: {{ .Values.demoPostgres.user | quote }}
+            - name: POSTGRES_PASSWORD
+              value: {{ .Values.demoPostgres.password | quote }}
+          # Truyền wal_level=logical qua command args thay vì postgresql.conf
+          # vì container image không cho phép mount vào /etc/postgresql/
+          args:
+            - "-c"
+            - "wal_level=logical"
+            - "-c"
+            - "max_replication_slots=5"
+            - "-c"
+            - "max_wal_senders=5"
+          volumeMounts:
+            - name: init-scripts
+              mountPath: /docker-entrypoint-initdb.d
+          resources:
+            {{- toYaml .Values.demoPostgres.resources | nindent 12 }}
+          readinessProbe:
+            exec:
+              command:
+                - pg_isready
+                - "-U"
+                - {{ .Values.demoPostgres.user | quote }}
+                - "-d"
+                - {{ .Values.demoPostgres.database | quote }}
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            failureThreshold: 6
+      volumes:
+        - name: init-scripts
+          configMap:
+            name: demo-postgres-init
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: demo-postgres
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: demo-postgres
+spec:
+  selector:
+    app: demo-postgres
+  ports:
+    - port: 5432
+      targetPort: 5432
+  type: ClusterIP
+{{- end }}

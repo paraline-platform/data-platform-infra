@@ -1,0 +1,18 @@
+# ============================================================
+# NESSIE ENV CONFIG — Dynamic values từ environments/*.yaml
+# ============================================================
+
+# versionStoreType:
+#   IN_MEMORY  → dev: restart = mất catalog metadata (data vẫn còn trong MinIO)
+#   ROCKSDB    → prod: persistent single-node (cần PVC)
+#   JDBC       → prod HA: external Postgres, hỗ trợ multi-replica
+versionStoreType: {{ .Values.nessie.storage | upper }}
+
+{{- if eq (.Values.nessie.storage | lower) "rocksdb" }}
+rocksdb:
+  storageClassName: {{ .Values.nessie.storageClass | default "standard" }}
+  storageSize: {{ .Values.nessie.storageSize | default "5Gi" }}
+{{- end }}
+
+resources:
+  {{- toYaml .Values.nessie.resources | nindent 2 }}

@@ -1,0 +1,35 @@
+# ============================================================
+# NIFI ENV CONFIG — Dynamic values từ environments/*.yaml
+# ============================================================
+# Bridge .Values → apache-nifi/nifi chart values.
+# Không hardcode ở đây — tất cả đọc từ environments/<env>.yaml.
+
+# --- Auth ---
+auth:
+  singleUser:
+    username: {{ .Values.nifi.auth.username | quote }}
+    password: {{ .Values.nifi.auth.password | quote }}
+
+# --- NiFi Properties ---
+properties:
+  # webProxyHost: browser URL để access NiFi (không có → "Request not allowed for proxy")
+  # Dev:  localhost:<nodePort>
+  # Prod: nifi.<domain>
+  webProxyHost: {{ .Values.nifi.properties.webProxyHost | quote }}
+  sensitiveKey: {{ .Values.nifi.properties.sensitiveKey | quote }}
+
+# --- Service ---
+service:
+  type: {{ .Values.nifi.service.type }}
+  {{- if eq .Values.nifi.service.type "NodePort" }}
+  nodePort: {{ .Values.nifi.service.nodePort }}
+  {{- end }}
+
+# --- Storage ---
+persistence:
+  subPath:
+    size: {{ .Values.nifi.storage | quote }}
+
+# --- Resources ---
+resources:
+  {{- toYaml .Values.nifi.resources | nindent 2 }}
