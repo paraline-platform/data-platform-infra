@@ -1,0 +1,85 @@
+{{- $maven := "https://repo1.maven.org/maven2" -}}
+{{- $pgJdbc := .Values.jars.postgresJdbcVersion -}}
+# ============================================================
+# JOB — HMS Schema Init (schematool)
+# ============================================================
+# Chạy MỘT LẦN (hoặc idempotent khi upgrade) để tạo schema HMS trong Postgres.
+# Lệnh: schematool -dbType postgres -initOrUpgradeSchema
+# → Tạo tất cả tables, sequences của Hive Metastore nếu chưa có.
+# → Nếu đã tồn tại: kiểm tra version + upgrade nếu cần (idempotent).
+# ============================================================
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "hive-metastore.name" . }}-schema-init
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "hive-metastore.labels" . | nindent 4 }}
+  annotations:
+    # Helm hook: chạy trước khi deploy Deployment HMS
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "-5"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 3
+  template:
+    metadata:
+      labels:
+        {{- include "hive-metastore.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: schema-init
+    spec:
+      restartPolicy: OnFailure
+      initContainers:
+        # Download PostgreSQL JDBC driver (cần cho schematool)
+        - name: download-jdbc
+          image: busybox
+          command: [sh, -c]
+          args:
+            - |
+              set -e
+              mkdir -p /tmp/jars
+              MAVEN="{{ $maven }}"
+              echo "[1/1] postgresql-{{ $pgJdbc }}.jar"
+              wget -q -O /tmp/jars/postgresql-{{ $pgJdbc }}.jar \
+                "${MAVEN}/org/postgresql/postgresql/{{ $pgJdbc }}/postgresql-{{ $pgJdbc }}.jar"
+              echo "JDBC driver ready:"; ls -lh /tmp/jars/
+          volumeMounts:
+            - name: jars
+              mountPath: /tmp/jars
+      containers:
+        - name: schematool
+          image: {{ .Values.image.repository }}:{{ .Values.image.tag }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: [/bin/bash, -c]
+          args:
+            - |
+              set -e
+              # Copy JDBC driver vào classpath HMS
+              cp /tmp/jars/postgresql-{{ $pgJdbc }}.jar /opt/hive/lib/
+
+              # Chạy schematool với connection string đầy đủ
+              echo "[schematool] Initializing or upgrading HMS schema in PostgreSQL..."
+              /opt/hive/bin/schematool \
+                -dbType postgres \
+                -url "{{ include "hive-metastore.jdbcUrl" . }}" \
+                -userName {{ .Values.postgres.username }} \
+                -passWord "$HMS_DB_PASSWORD" \
+                -initOrUpgradeSchema \
+                -verbose
+              echo "[schematool] Schema init/upgrade DONE."
+          env:
+            - name: HMS_DB_PASSWORD
+              {{- if .Values.postgres.useExistingSecret }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.postgres.existingSecret }}
+                  key: {{ .Values.postgres.secretKey }}
+              {{- else }}
+              value: {{ .Values.postgres.password | quote }}
+              {{- end }}
+          volumeMounts:
+            - name: jars
+              mountPath: /tmp/jars
+      volumes:
+        - name: jars
+          emptyDir: {}

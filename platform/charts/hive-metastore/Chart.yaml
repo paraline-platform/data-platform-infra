@@ -1,0 +1,10 @@
+apiVersion: v2
+name: hive-metastore
+description: |
+  Apache Hive Standalone Metastore — Iceberg catalog backend.
+  Kết nối Spark qua Thrift protocol (port 9083).
+  Backend: PostgreSQL (bitnami/postgresql chart).
+  Storage: MinIO qua S3A.
+type: application
+version: "1.0.0"
+appVersion: "4.0.1"

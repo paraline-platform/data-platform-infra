@@ -14,10 +14,9 @@ service:
   thriftPort: 10000
   uiPort: 4040
 
-# Nessie + MinIO service endpoints (DNS ổn định trong cluster, không thay theo env)
-nessie:
-  uri: "http://nessie.data-modeling.svc.cluster.local:19120/api/v2"
-  ref: "main"
+# Hive Metastore + MinIO service endpoints (DNS ổn định trong cluster, không thay theo env)
+hive:
+  uri: "thrift://hive-metastore.data-modeling.svc.cluster.local:9083"
   warehouse: "s3a://warehouse/"
 
 minio:

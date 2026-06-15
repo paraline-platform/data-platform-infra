@@ -1,0 +1,117 @@
+{{- $maven := "https://repo1.maven.org/maven2" -}}
+{{- $pgJdbc := .Values.jars.postgresJdbcVersion -}}
+{{- $hadoopAws := .Values.jars.hadoopAwsVersion -}}
+{{- $sdk := .Values.jars.awsSdkVersion -}}
+# ============================================================
+# DEPLOYMENT — Hive Standalone Metastore
+# ============================================================
+# Service: thrift://hive-metastore.data-modeling.svc.cluster.local:9083
+# Spark kết nối: spark.sql.catalog.lakehouse.uri = thrift://hive-metastore...:9083
+# ============================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "hive-metastore.name" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "hive-metastore.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "hive-metastore.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "hive-metastore.labels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "hive-metastore.name" . }}
+      initContainers:
+        # Download JARs HMS cần để kết nối S3A (MinIO) và PostgreSQL
+        - name: download-jars
+          image: busybox
+          command: [sh, -c]
+          args:
+            - |
+              set -e
+              mkdir -p /tmp/jars
+              MAVEN="{{ $maven }}"
+
+              echo "[1/5] postgresql-{{ $pgJdbc }}.jar"
+              wget -q -O /tmp/jars/postgresql-{{ $pgJdbc }}.jar \
+                "${MAVEN}/org/postgresql/postgresql/{{ $pgJdbc }}/postgresql-{{ $pgJdbc }}.jar"
+
+              echo "[2/5] hadoop-aws-{{ $hadoopAws }}.jar"
+              wget -q -O /tmp/jars/hadoop-aws-{{ $hadoopAws }}.jar \
+                "${MAVEN}/org/apache/hadoop/hadoop-aws/{{ $hadoopAws }}/hadoop-aws-{{ $hadoopAws }}.jar"
+
+              echo "[3/5] aws-java-sdk-s3-{{ $sdk }}.jar"
+              wget -q -O /tmp/jars/aws-java-sdk-s3-{{ $sdk }}.jar \
+                "${MAVEN}/com/amazonaws/aws-java-sdk-s3/{{ $sdk }}/aws-java-sdk-s3-{{ $sdk }}.jar"
+
+              echo "[4/5] aws-java-sdk-core-{{ $sdk }}.jar"
+              wget -q -O /tmp/jars/aws-java-sdk-core-{{ $sdk }}.jar \
+                "${MAVEN}/com/amazonaws/aws-java-sdk-core/{{ $sdk }}/aws-java-sdk-core-{{ $sdk }}.jar"
+
+              echo "[5/5] aws-java-sdk-sts-{{ $sdk }}.jar"
+              wget -q -O /tmp/jars/aws-java-sdk-sts-{{ $sdk }}.jar \
+                "${MAVEN}/com/amazonaws/aws-java-sdk-sts/{{ $sdk }}/aws-java-sdk-sts-{{ $sdk }}.jar"
+
+              echo "JARs ready:"; ls -lh /tmp/jars/
+          volumeMounts:
+            - name: jars
+              mountPath: /tmp/jars
+
+      containers:
+        - name: hive-metastore
+          image: {{ .Values.image.repository }}:{{ .Values.image.tag }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: [/bin/bash, /configmap/entrypoint.sh]
+          env:
+            # DB password — từ K8s Secret hoặc inline (dev)
+            - name: HMS_DB_PASSWORD
+              {{- if .Values.postgres.useExistingSecret }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.postgres.existingSecret }}
+                  key: {{ .Values.postgres.secretKey }}
+              {{- else }}
+              value: {{ .Values.postgres.password | quote }}
+              {{- end }}
+            # HMS cần HADOOP_CLASSPATH để load JARs từ /tmp/jars
+            - name: HADOOP_CLASSPATH
+              value: "/tmp/jars/*"
+            # Cần SERVICE_NAME=metastore để image biết chạy HMS thay vì HiveServer2
+            - name: SERVICE_NAME
+              value: "metastore"
+          ports:
+            - containerPort: {{ .Values.service.port }}
+              name: thrift
+          # HMS thrift server sẵn sàng khi port 9083 mở (mất ~60s khi start lần đầu)
+          readinessProbe:
+            tcpSocket:
+              port: {{ .Values.service.port }}
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            failureThreshold: 12     # 12×10s = 2 phút timeout
+          livenessProbe:
+            tcpSocket:
+              port: {{ .Values.service.port }}
+            initialDelaySeconds: 90
+            periodSeconds: 30
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: jars
+              mountPath: /tmp/jars
+            - name: config
+              mountPath: /configmap
+
+      volumes:
+        - name: jars
+          emptyDir: {}
+        - name: config
+          configMap:
+            name: {{ include "hive-metastore.name" . }}-config
+            defaultMode: 0755   # entrypoint.sh cần executable
