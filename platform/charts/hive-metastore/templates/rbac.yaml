@@ -1,0 +1,12 @@
+# ============================================================
+# RBAC — Hive Metastore
+# ============================================================
+# HMS không cần quyền đặc biệt trong K8s (chỉ kết nối Postgres + MinIO).
+# ServiceAccount riêng để audit/RBAC policy dễ quản lý.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "hive-metastore.name" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "hive-metastore.labels" . | nindent 4 }}

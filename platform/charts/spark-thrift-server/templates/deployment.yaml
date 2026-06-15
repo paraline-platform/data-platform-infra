@@ -84,12 +84,12 @@ spec:
                 --name spark-thrift-server \
                 --jars "$JARS" \
                 --conf "spark.sql.extensions=org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions" \
-                --conf "spark.sql.catalog.nessie=org.apache.iceberg.spark.SparkCatalog" \
-                --conf "spark.sql.catalog.nessie.catalog-impl=org.apache.iceberg.nessie.NessieCatalog" \
-                --conf "spark.sql.catalog.nessie.uri={{ .Values.nessie.uri }}" \
-                --conf "spark.sql.catalog.nessie.ref={{ .Values.nessie.ref }}" \
-                --conf "spark.sql.catalog.nessie.warehouse={{ .Values.nessie.warehouse }}" \
-                --conf "spark.sql.defaultCatalog=nessie" \
+                --conf "spark.sql.catalogImplementation=in-memory" \
+                --conf "spark.sql.catalog.lakehouse=org.apache.iceberg.spark.SparkCatalog" \
+                --conf "spark.sql.catalog.lakehouse.catalog-impl=org.apache.iceberg.hive.HiveCatalog" \
+                --conf "spark.sql.catalog.lakehouse.uri={{ .Values.hive.uri }}" \
+                --conf "spark.sql.catalog.lakehouse.warehouse={{ .Values.hive.warehouse }}" \
+                --conf "spark.sql.defaultCatalog=lakehouse" \
                 --conf "spark.hadoop.fs.s3a.endpoint={{ .Values.minio.endpoint }}" \
                 --conf "spark.hadoop.fs.s3a.access.key={{ .Values.minio.accessKey }}" \
                 --conf "spark.hadoop.fs.s3a.secret.key={{ .Values.minio.secretKey }}" \
@@ -99,7 +99,6 @@ spec:
                 --conf "hive.server2.thrift.port={{ .Values.service.thriftPort }}" \
                 --conf "hive.server2.thrift.bind.host=0.0.0.0" \
                 --conf "spark.driver.extraClassPath=${CLASSPATH}" \
-                --conf "spark.driver.extraJavaOptions=-Dderby.system.home=/tmp/derby -Dderby.stream.error.file=/tmp/derby.log" \
                 {{- if $isK8sMode }}
                 --conf "spark.kubernetes.namespace={{ .Release.Namespace }}" \
                 --conf "spark.kubernetes.authenticate.driver.serviceAccountName=spark-thrift-server" \

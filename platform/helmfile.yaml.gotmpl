@@ -6,11 +6,21 @@
 # Luồng hoạt động:
 #   environments/*.yaml  →  .Values  →  values/env/*.gotmpl  →  Helm chart
 #
-# Cách dùng (từ thư mục k8s-paraline/):
+# Cách dùng (từ thư mục platform/):
 #   Deploy toàn bộ:      ./scripts/deploy.sh dev
 #   Deploy 1 layer:      ./scripts/deploy.sh dev 02-storage
 #   Xem diff:            ./scripts/deploy.sh dev "" diff
 #   Xóa toàn bộ:         ./scripts/deploy.sh dev "" destroy
+#
+# Layer model:
+#   00-infra        Ingress controller
+#   01-ingestion    Kafka/Strimzi, Debezium CDC, NiFi
+#   02-storage      MinIO (object storage)
+#   03-processing   Spark Operator
+#   04-lakehouse    HMS (Postgres + Hive Metastore), Spark Thrift Server
+#   05-governance   DataHub (TODO)
+#   06-orchestration Airflow
+#   07-observability Prometheus + Grafana (TODO)
 # ============================================================
 
 # Document 1: environments (PHẢI tách riêng bằng ---)
@@ -44,8 +54,6 @@ repositories:
     url: https://helm.datahubproject.io/
   - name: apache-nifi
     url: https://cetic.github.io/helm-charts
-  - name: projectnessie
-    url: https://charts.projectnessie.org
   - name: prometheus-community
     url: https://prometheus-community.github.io/helm-charts
   - name: grafana
@@ -64,34 +72,21 @@ releases:
   # ==========================================================
   # LAYER 00: INFRASTRUCTURE — Ingress Controller
   # ==========================================================
-  - name: ingress-nginx
-    namespace: data-infra
-    chart: ingress-nginx/ingress-nginx
-    version: "4.10.0"
-    labels:
-      layer: "00-infra"
-    # installed: đọc từ environments/*.yaml
-    # dev  → global.ingress.enabled: false → bỏ qua, dùng NodePort
-    # prod → global.ingress.enabled: true  → deploy ingress-nginx
-    installed: {{ .Values.global.ingress.enabled }}
-    values:
-      - values/base/ingress-nginx.yaml
+  # TODO Phase: tạo values/base/ingress-nginx.yaml rồi bật lại
+  # dev  → global.ingress.enabled: false → bỏ qua, dùng NodePort
+  # prod → global.ingress.enabled: true  → deploy ingress-nginx
+  # - name: ingress-nginx
+  #   namespace: data-infra
+  #   chart: ingress-nginx/ingress-nginx
+  #   version: "4.10.0"
+  #   labels:
+  #     layer: "00-infra"
+  #   installed: {{ .Values.global.ingress.enabled }}
+  #   values:
+  #     - values/base/ingress-nginx.yaml
 
   # ==========================================================
-  # LAYER 02: STORAGE — MinIO
-  # ==========================================================
-  - name: minio
-    namespace: data-storage
-    chart: minio/minio
-    version: "5.4.0"
-    labels:
-      layer: "02-storage"
-    values:
-      - values/base/minio.yaml               # Config tĩnh (buckets, ports)
-      - values/env/minio.yaml.gotmpl         # Config động từ environments/*.yaml
-
-  # ==========================================================
-  # LAYER 01+03: MESSAGING — Kafka (Strimzi Operator)
+  # LAYER 01: INGESTION — Kafka (Strimzi Operator)
   # ==========================================================
   - name: strimzi-operator
     namespace: data-ingestion
@@ -114,69 +109,11 @@ releases:
       - values/env/kafka-cluster.yaml.gotmpl
 
   # ==========================================================
-  # LAYER 03: PROCESSING — Spark Operator
-  # ==========================================================
-  - name: spark-operator
-    namespace: data-processing
-    chart: spark-operator/spark-operator
-    version: "2.5.0"
-    labels:
-      layer: "03-processing"
-    # Spark Operator image lớn (~200MB từ ghcr.io), pull lần đầu chậm
-    # Tăng timeout riêng để tránh rollback sớm
-    timeout: 900
-    values:
-      - values/base/spark-operator.yaml
-      - values/env/spark-operator.yaml.gotmpl
-
-  # ==========================================================
-  # LAYER 04: LAKEHOUSE — Nessie (Iceberg Catalog)
-  # ==========================================================
-  # Nessie = REST catalog cho Apache Iceberg tables
-  # Spark và dbt kết nối qua: http://nessie.data-modeling.svc:19120/api/v2
-  # dev: IN_MEMORY (metadata mất khi restart, data vẫn còn trong MinIO)
-  # prod: ROCKSDB (persistent, cần PVC)
-  - name: nessie
-    namespace: data-modeling
-    chart: projectnessie/nessie
-    version: "0.107.9"
-    labels:
-      layer: "04-lakehouse"
-      component: nessie
-    values:
-      - values/base/nessie.yaml
-      - values/env/nessie.yaml.gotmpl
-
-  # ==========================================================
-  # LAYER 04: LAKEHOUSE — Spark Thrift Server (dbt SQL gateway)
-  # ==========================================================
-  # HiveServer2-compatible Spark SQL server, dbt kết nối qua thrift:10000
-  # dev:  local[2] — 1 pod, không executor
-  # uat/prod: k8s:// — driver pod + executor pods (Dynamic Allocation)
-  - name: spark-thrift-server
-    namespace: data-modeling
-    chart: ./charts/spark-thrift-server
-    labels:
-      layer: "04-lakehouse"
-      component: spark-thrift-server
-    # wait: false vì readinessProbe cần ~90s (JARs download + HiveServer2 init)
-    wait: false
-    atomic: false
-    timeout: 600
-    needs:
-      - data-modeling/nessie
-      - data-storage/minio
-    values:
-      - values/base/spark-thrift-server.yaml
-      - values/env/spark-thrift-server.yaml.gotmpl
-
-  # ==========================================================
   # LAYER 01: INGESTION — Debezium CDC
   # ==========================================================
   # Chart: local (./charts/debezium)
   # Components: demo-postgres + KafkaConnect (Strimzi) + KafkaConnector
   # KafkaConnect dùng image quay.io/debezium/connect:3.0.0.Final
-  # (pre-built, không cần container registry)
   - name: debezium
     namespace: data-ingestion
     chart: ./charts/debezium
@@ -195,10 +132,9 @@ releases:
   # ==========================================================
   # LAYER 01: INGESTION — NiFi
   # ==========================================================
-  # Chart: cetic community chart (bitnami đã xóa NiFi chart)
-  # App:   Apache NiFi 1.23.2 (ổn định, widely used)
+  # Chart: cetic community chart
   # Auth:  Single User + HTTPS (self-signed cert)
-  # UI:    https://localhost:30800/nifi  (dev, NodePort)
+  # UI:    https://localhost:8443/nifi  (dev, port-forward)
   - name: nifi
     namespace: data-ingestion
     chart: apache-nifi/nifi
@@ -207,9 +143,6 @@ releases:
       layer: "01-ingestion"
       component: nifi
     # NiFi lần đầu start mất 3-5 phút (generate SSL certs + init flow)
-    # wait: false → Helm apply xong là return, không đợi pod Ready
-    # atomic: false → không rollback khi timeout
-    # Kiểm tra thủ công: kubectl get pods -n data-ingestion -w
     wait: false
     atomic: false
     timeout: 900
@@ -221,6 +154,121 @@ releases:
       - values/env/nifi.yaml.gotmpl
 
   # ==========================================================
+  # LAYER 02: STORAGE — MinIO
+  # ==========================================================
+  - name: minio
+    namespace: data-storage
+    chart: minio/minio
+    version: "5.4.0"
+    labels:
+      layer: "02-storage"
+    values:
+      - values/base/minio.yaml               # Config tĩnh (buckets, ports)
+      - values/env/minio.yaml.gotmpl         # Config động từ environments/*.yaml
+
+  # ==========================================================
+  # LAYER 03: PROCESSING — Spark Operator
+  # ==========================================================
+  - name: spark-operator
+    namespace: data-processing
+    chart: spark-operator/spark-operator
+    version: "2.5.0"
+    labels:
+      layer: "03-processing"
+    # Spark Operator image lớn (~200MB từ ghcr.io), pull lần đầu chậm
+    timeout: 900
+    values:
+      - values/base/spark-operator.yaml
+      - values/env/spark-operator.yaml.gotmpl
+
+  # ==========================================================
+  # LAYER 04: LAKEHOUSE — PostgreSQL (HMS backend)
+  # ==========================================================
+  # Database backend cho Hive Metastore: lưu catalog metadata (bảng, schema,
+  # partition, column stats). Tất cả env dùng Postgres (dev: nhỏ, prod: lớn).
+  # HMS bắt buộc cần RDBMS — không thể chạy hoàn toàn in-memory như Nessie.
+  - name: hms-postgres
+    namespace: data-modeling
+    chart: bitnami/postgresql
+    version: "15.5.38"
+    labels:
+      layer: "04-lakehouse"
+      component: hms-postgres
+    values:
+      - values/base/hms-postgres.yaml
+      - values/env/hms-postgres.yaml.gotmpl
+
+  # ==========================================================
+  # LAYER 04: LAKEHOUSE — Hive Metastore (Iceberg Catalog)
+  # ==========================================================
+  # Hive Metastore Standalone = Iceberg catalog thay thế Nessie
+  # Spark kết nối qua: thrift://hive-metastore.data-modeling.svc:9083
+  # Catalog name trong Spark: "lakehouse" (spark.sql.defaultCatalog=lakehouse)
+  - name: hive-metastore
+    namespace: data-modeling
+    chart: ./charts/hive-metastore
+    labels:
+      layer: "04-lakehouse"
+      component: hive-metastore
+    # HMS start mất ~60s (schematool init + JARs load)
+    wait: false
+    atomic: false
+    timeout: 600
+    needs:
+      - data-modeling/hms-postgres
+      - data-storage/minio
+    values:
+      - values/base/hive-metastore.yaml
+      - values/env/hive-metastore.yaml.gotmpl
+
+  # ==========================================================
+  # LAYER 04: LAKEHOUSE — Spark Thrift Server (dbt SQL gateway)
+  # ==========================================================
+  # HiveServer2-compatible Spark SQL server, dbt kết nối qua thrift:10000
+  # Catalog: lakehouse (Iceberg HiveCatalog → HMS thrift:9083 → Postgres)
+  # dev:  local[2] — 1 pod, không executor
+  # uat/prod: k8s:// — driver pod + executor pods (Dynamic Allocation)
+  - name: spark-thrift-server
+    namespace: data-modeling
+    chart: ./charts/spark-thrift-server
+    labels:
+      layer: "04-lakehouse"
+      component: spark-thrift-server
+    # wait: false vì readinessProbe cần ~90s (JARs download + HiveServer2 init)
+    wait: false
+    atomic: false
+    timeout: 600
+    needs:
+      - data-modeling/hive-metastore
+      - data-storage/minio
+    values:
+      - values/base/spark-thrift-server.yaml
+      - values/env/spark-thrift-server.yaml.gotmpl
+
+  # ==========================================================
+  # LAYER 05: GOVERNANCE — DataHub
+  # ==========================================================
+  # TODO Phase: tạo values/base/datahub-prerequisites.yaml và datahub.yaml rồi bật lại
+  # - name: datahub-prerequisites
+  #   namespace: data-governance
+  #   chart: datahub/datahub-prerequisites
+  #   labels:
+  #     layer: "05-governance"
+  #   values:
+  #     - values/base/datahub-prerequisites.yaml
+  #
+  # - name: datahub
+  #   namespace: data-governance
+  #   chart: datahub/datahub
+  #   labels:
+  #     layer: "05-governance"
+  #   needs:
+  #     - data-governance/datahub-prerequisites
+  #   values:
+  #     - values/base/datahub.yaml
+  #     - values/env/datahub.yaml.gotmpl
+
+  # ==========================================================
   # LAYER 06: ORCHESTRATION — Airflow
   # ==========================================================
   - name: airflow
@@ -230,9 +278,7 @@ releases:
     labels:
       layer: "06-orchestration"
     # wait: false — Airflow chart dùng post-install hook (migrateDatabaseJob) để chạy
-    # "airflow db migrate". Nếu wait=true, Helm sẽ chờ Deployments ready TRƯỚC KHI
-    # chạy hook → deadlock: pods chờ migration, migration chờ pods ready.
-    # Giải pháp: wait=false → Helm apply xong là return, hook tự chạy, pods tự đợi.
+    # "airflow db migrate". Nếu wait=true → deadlock: pods chờ migration, migration chờ pods.
     wait: false
     atomic: false
     timeout: 1800
@@ -244,39 +290,18 @@ releases:
       - values/env/airflow.yaml.gotmpl
 
   # ==========================================================
-  # LAYER 05: GOVERNANCE — DataHub
-  # ==========================================================
-  - name: datahub-prerequisites
-    namespace: data-governance
-    chart: datahub/datahub-prerequisites
-    labels:
-      layer: "05-governance"
-    values:
-      - values/base/datahub-prerequisites.yaml
-
-  - name: datahub
-    namespace: data-governance
-    chart: datahub/datahub
-    labels:
-      layer: "05-governance"
-    needs:
-      - data-governance/datahub-prerequisites
-    values:
-      - values/base/datahub.yaml
-      - values/env/datahub.yaml.gotmpl
-
-  # ==========================================================
   # LAYER 07: OBSERVABILITY — Prometheus + Grafana
   # ==========================================================
-  - name: kube-prometheus-stack
-    namespace: data-observability
-    chart: prometheus-community/kube-prometheus-stack
-    version: "60.0.0"
-    labels:
-      layer: "07-observability"
-    values:
-      - values/base/prometheus-stack.yaml
-      - values/env/prometheus-stack.yaml.gotmpl
+  # TODO Phase: tạo values/base/prometheus-stack.yaml và values/env/prometheus-stack.yaml.gotmpl rồi bật lại
+  # - name: kube-prometheus-stack
+  #   namespace: data-observability
+  #   chart: prometheus-community/kube-prometheus-stack
+  #   version: "60.0.0"
+  #   labels:
+  #     layer: "07-observability"
+  #   values:
+  #     - values/base/prometheus-stack.yaml
+  #     - values/env/prometheus-stack.yaml.gotmpl
 
   # ==========================================================
   # LAYER 08: AI SERVICES — thêm sau khi các layer trên stable

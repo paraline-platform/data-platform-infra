@@ -39,15 +39,20 @@ kafka:
     limits:   { cpu: "1",    memory: "2Gi" }
 
 # ============================================================
-# LAYER 04: LAKEHOUSE — Nessie (Iceberg Catalog)
+# LAYER 04: LAKEHOUSE — Hive Metastore (Iceberg Catalog)
 # ============================================================
-nessie:
-  storage: rocksdb
-  storageClass: ""
-  storageSize: 5Gi
-  resources:
-    requests: { cpu: "100m", memory: "256Mi" }
-    limits:   { cpu: "500m", memory: "512Mi" }
+hms:
+  postgres:
+    useExistingSecret: true
+    existingSecret: hms-postgres-credentials    # kubectl create secret generic hms-postgres-credentials --from-literal=password=<strong-password> -n data-modeling
+    storageSize: 20Gi
+    resources:
+      requests: { cpu: "200m", memory: "512Mi" }
+      limits:   { cpu: "500m", memory: "1Gi" }
+  metastore:
+    resources:
+      requests: { cpu: "200m", memory: "512Mi" }
+      limits:   { cpu: "500m", memory: "1Gi" }
 
 # ============================================================
 # LAYER 05: DATA MODELING — Spark Thrift Server + dbt

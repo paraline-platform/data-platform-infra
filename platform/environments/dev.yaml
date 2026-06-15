@@ -156,21 +156,33 @@ nifi:
     limits:   { cpu: "2",    memory: "3Gi" }
 
 # ============================================================
-# LAYER 04: LAKEHOUSE — Nessie (Iceberg Catalog)
+# LAYER 04: LAKEHOUSE — Hive Metastore (Iceberg Catalog)
 # ============================================================
-nessie:
-  # IN_MEMORY: restart = mất catalog (OK cho dev — data vẫn còn trong MinIO)
-  # Để khôi phục: chạy lại Spark job register tables → Nessie nhận ra files cũ
-  storage: in_memory
-  resources:
-    requests: { cpu: "100m", memory: "256Mi" }
-    limits:   { cpu: "500m", memory: "512Mi" }
+# HMS thay thế Nessie làm Iceberg catalog.
+# Catalog name trong Spark: "lakehouse" (spark.sql.defaultCatalog=lakehouse)
+# Tất cả env dùng PostgreSQL backend — không có in-memory option.
+#   Dev:  Postgres 5Gi PVC (nhỏ, dễ reset)
+#   Prod: Postgres lớn hơn + useExistingSecret
+hms:
+  postgres:
+    # Password HMS DB cho dev (inline — không dùng cho prod)
+    password: "hms-dev-password"
+    useExistingSecret: false
+    storageSize: 5Gi
+    resources:
+      requests: { cpu: "100m", memory: "256Mi" }
+      limits:   { cpu: "250m", memory: "512Mi" }
+  metastore:
+    resources:
+      requests: { cpu: "200m", memory: "512Mi" }
+      limits:   { cpu: "500m", memory: "1Gi" }
 
 # ============================================================
 # LAYER 04: LAKEHOUSE — Spark Thrift Server (dbt SQL gateway)
 # ============================================================
 # Thrift Server = HiveServer2-compatible Spark SQL server
 # dbt kết nối qua: thrift://spark-thrift-server.data-modeling.svc:10000
+# Catalog: lakehouse (Iceberg HiveCatalog → HMS thrift:9083 → Postgres)
 #
 # dev:  local[2] — tất cả chạy trong 1 pod, không cần executor pods
 #       → đơn giản, khởi động nhanh (~90s), tiết kiệm tài nguyên
@@ -195,7 +207,7 @@ sparkThriftServer:
 # Cách chạy: ./scripts/run-dbt.sh dev run
 dbt:
   threads: 1           # dev: 1 model song song (đủ để test)
-  schema: dbt_dev      # Nessie namespace: nessie.dbt_dev.*
+  schema: dbt_dev      # HMS schema: lakehouse.dbt_dev.*
 
 # ============================================================
 # LAYER 07: OBSERVABILITY — Prometheus + Grafana
