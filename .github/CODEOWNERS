@@ -1,0 +1,17 @@
+# CODEOWNERS — ai review PR cho phần nào
+# Syntax: <path pattern>  <@github-username hoặc @org/team>
+# Docs: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+# Default owner cho tất cả files
+*                           @tungnt763
+
+# Platform config — production values cần review kỹ
+platform/environments/prod.yaml    @tungnt763
+platform/environments/uat.yaml     @tungnt763
+platform/values/env/*.gotmpl       @tungnt763
+
+# Helm charts
+platform/charts/                   @tungnt763
+
+# Argo CD manifests (Phase 4)
+argocd/                            @tungnt763
