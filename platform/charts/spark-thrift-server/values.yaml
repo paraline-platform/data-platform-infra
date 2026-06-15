@@ -9,9 +9,8 @@ replicaCount: 1
 # local[2] cho dev, k8s://https://kubernetes.default.svc:443 cho uat/prod
 sparkMaster: "local[2]"
 
-nessie:
-  uri: "http://nessie.data-modeling.svc.cluster.local:19120/api/v2"
-  ref: "main"
+hive:
+  uri: "thrift://hive-metastore.data-modeling.svc.cluster.local:9083"
   warehouse: "s3a://warehouse/"
 
 minio:

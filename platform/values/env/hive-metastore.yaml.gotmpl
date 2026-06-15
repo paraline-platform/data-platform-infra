@@ -1,0 +1,24 @@
+# ============================================================
+# ENV VALUES — Hive Metastore
+# ============================================================
+# Đọc từ .Values (environments/dev.yaml, uat.yaml, prod.yaml)
+# Override values/base/hive-metastore.yaml
+
+# MinIO credentials từ environments/*.yaml
+minio:
+  accessKey: {{ .Values.minio.auth.rootUser | quote }}
+  secretKey: {{ .Values.minio.auth.rootPassword | quote }}
+
+# PostgreSQL credentials
+postgres:
+  {{- if .Values.hms.postgres.useExistingSecret }}
+  useExistingSecret: true
+  existingSecret: {{ .Values.hms.postgres.existingSecret | default "hms-postgres-credentials" }}
+  secretKey: "password"
+  {{- else }}
+  useExistingSecret: false
+  password: {{ .Values.hms.postgres.password | quote }}
+  {{- end }}
+
+resources:
+  {{- toYaml .Values.hms.metastore.resources | nindent 2 }}

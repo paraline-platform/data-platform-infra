@@ -1,0 +1,48 @@
+# ============================================================
+# DEFAULT VALUES — Hive Metastore
+# ============================================================
+# Override bằng values/base/hive-metastore.yaml và values/env/hive-metastore.yaml.gotmpl
+
+image:
+  repository: apache/hive
+  tag: "4.0.1"
+  pullPolicy: IfNotPresent
+
+replicaCount: 1
+
+# Thrift port HMS lắng nghe — Spark kết nối qua thrift://host:9083
+service:
+  type: ClusterIP
+  port: 9083
+
+# PostgreSQL connection (override bằng values/env)
+postgres:
+  host: "hms-postgres-postgresql.data-modeling.svc.cluster.local"
+  port: 5432
+  database: metastore
+  username: hive
+  password: "changeme"            # dev: inline; prod: useExistingSecret
+  useExistingSecret: false
+  existingSecret: "hms-postgres-credentials"
+  secretKey: "password"
+
+# MinIO / S3A endpoint và credentials (override bằng values/env)
+minio:
+  endpoint: "http://minio.data-storage.svc.cluster.local:9000"
+  accessKey: "admin"
+  secretKey: "minio-dev-password"
+  warehouse: "s3a://warehouse/"   # default warehouse path cho Iceberg tables
+
+# JAR versions — khớp với spark-thrift-server để tránh class mismatch
+jars:
+  postgresJdbcVersion: "42.7.3"
+  hadoopAwsVersion: "3.3.4"
+  awsSdkVersion: "1.12.587"
+
+resources:
+  requests:
+    cpu: "200m"
+    memory: "512Mi"
+  limits:
+    cpu: "500m"
+    memory: "1Gi"

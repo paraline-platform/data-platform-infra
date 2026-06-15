@@ -1,0 +1,155 @@
+{{- $maven := "https://repo1.maven.org/maven2" -}}
+{{- $pgJdbc := .Values.jars.postgresJdbcVersion -}}
+{{- $hadoopAws := .Values.jars.hadoopAwsVersion -}}
+{{- $sdk := .Values.jars.awsSdkVersion -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "hive-metastore.name" . }}-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "hive-metastore.labels" . | nindent 4 }}
+data:
+  # ============================================================
+  # hive-site.xml — Cấu hình Hive Standalone Metastore
+  # ============================================================
+  # Mount vào /opt/hive/conf/hive-site.xml trong container
+  hive-site.xml: |
+    <?xml version="1.0" encoding="UTF-8" standalone="no"?>
+    <?xml-stylesheet type="text/xsl" href="configuration.xsl"?>
+    <configuration>
+
+      <!-- =========================================== -->
+      <!-- METASTORE DATABASE (PostgreSQL)             -->
+      <!-- =========================================== -->
+      <property>
+        <name>javax.jdo.option.ConnectionURL</name>
+        <value>{{ include "hive-metastore.jdbcUrl" . }}</value>
+        <description>JDBC connection URL cho catalog metadata store</description>
+      </property>
+      <property>
+        <name>javax.jdo.option.ConnectionDriverName</name>
+        <value>org.postgresql.Driver</value>
+      </property>
+      <property>
+        <name>javax.jdo.option.ConnectionUserName</name>
+        <value>{{ .Values.postgres.username }}</value>
+      </property>
+      <!-- Password inject bởi env var HADOOP_OPTS hoặc Secret mount — xem deployment.yaml -->
+      <property>
+        <name>javax.jdo.option.ConnectionPassword</name>
+        <value>_PLACEHOLDER_REPLACED_BY_ENV_</value>
+      </property>
+
+      <!-- =========================================== -->
+      <!-- METASTORE THRIFT SERVER                     -->
+      <!-- =========================================== -->
+      <property>
+        <name>metastore.thrift.uris</name>
+        <value>thrift://0.0.0.0:{{ .Values.service.port }}</value>
+      </property>
+      <property>
+        <name>metastore.thrift.port</name>
+        <value>{{ .Values.service.port }}</value>
+      </property>
+      <!-- Cho phép Spark client kết nối mà không cần Kerberos -->
+      <property>
+        <name>metastore.security.mode</name>
+        <value>none</value>
+      </property>
+
+      <!-- =========================================== -->
+      <!-- WAREHOUSE PATH (Iceberg default location)   -->
+      <!-- =========================================== -->
+      <property>
+        <name>hive.metastore.warehouse.dir</name>
+        <value>{{ .Values.minio.warehouse }}</value>
+        <description>S3A path nơi HMS tạo database/table directories mặc định</description>
+      </property>
+      <property>
+        <name>metastore.warehouse.dir</name>
+        <value>{{ .Values.minio.warehouse }}</value>
+      </property>
+
+      <!-- =========================================== -->
+      <!-- S3A / MINIO CONFIGURATION                   -->
+      <!-- =========================================== -->
+      <property>
+        <name>fs.s3a.endpoint</name>
+        <value>{{ .Values.minio.endpoint }}</value>
+      </property>
+      <property>
+        <name>fs.s3a.access.key</name>
+        <value>{{ .Values.minio.accessKey }}</value>
+      </property>
+      <property>
+        <name>fs.s3a.secret.key</name>
+        <value>{{ .Values.minio.secretKey }}</value>
+      </property>
+      <property>
+        <name>fs.s3a.path.style.access</name>
+        <value>true</value>
+        <description>MinIO cần path-style access (không dùng virtual-hosted-style)</description>
+      </property>
+      <property>
+        <name>fs.s3a.impl</name>
+        <value>org.apache.hadoop.fs.s3a.S3AFileSystem</value>
+      </property>
+      <property>
+        <name>fs.s3a.connection.ssl.enabled</name>
+        <value>false</value>
+      </property>
+      <property>
+        <name>fs.s3a.aws.credentials.provider</name>
+        <value>org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider</value>
+      </property>
+
+      <!-- =========================================== -->
+      <!-- MISC / PERFORMANCE                          -->
+      <!-- =========================================== -->
+      <!-- Tắt auto schema upgrade (dùng schematool Job thay) -->
+      <property>
+        <name>hive.metastore.schema.verification</name>
+        <value>false</value>
+      </property>
+      <property>
+        <name>datanucleus.autoCreateSchema</name>
+        <value>false</value>
+      </property>
+      <property>
+        <name>datanucleus.fixedDatastore</name>
+        <value>false</value>
+      </property>
+      <!-- Connection pool -->
+      <property>
+        <name>datanucleus.connectionPool.maxPoolSize</name>
+        <value>10</value>
+      </property>
+    </configuration>
+
+  # ============================================================
+  # Startup script — ghi password từ env var vào hive-site.xml
+  # ============================================================
+  # HMS 4.x không hỗ trợ đọc password từ env var trực tiếp trong hive-site.xml.
+  # Script này thay _PLACEHOLDER_ bằng $HMS_DB_PASSWORD khi container start.
+  entrypoint.sh: |
+    #!/bin/bash
+    set -e
+    CONFIG_FILE="/opt/hive/conf/hive-site.xml"
+    cp /configmap/hive-site.xml "$CONFIG_FILE"
+
+    # Inject DB password từ env var (Secret mount → env var)
+    if [ -n "$HMS_DB_PASSWORD" ]; then
+      sed -i "s|_PLACEHOLDER_REPLACED_BY_ENV_|${HMS_DB_PASSWORD}|g" "$CONFIG_FILE"
+    fi
+
+    # Inject MinIO credentials nếu dùng Secret mount
+    if [ -n "$HMS_MINIO_ACCESS_KEY" ]; then
+      sed -i "s|{{ .Values.minio.accessKey }}|${HMS_MINIO_ACCESS_KEY}|g" "$CONFIG_FILE"
+    fi
+    if [ -n "$HMS_MINIO_SECRET_KEY" ]; then
+      sed -i "s|{{ .Values.minio.secretKey }}|${HMS_MINIO_SECRET_KEY}|g" "$CONFIG_FILE"
+    fi
+
+    echo "[HMS] Config ready. Starting Hive Metastore..."
+    exec /opt/hive/bin/hive --service metastore

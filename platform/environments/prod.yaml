@@ -137,17 +137,25 @@ nifi:
     limits:   { cpu: "4",  memory: "8Gi" }
 
 # ============================================================
-# LAYER 04: LAKEHOUSE — Nessie (Iceberg Catalog)
+# LAYER 04: LAKEHOUSE — Hive Metastore (Iceberg Catalog)
 # ============================================================
-nessie:
-  # ROCKSDB: persistent, single-node. Cần PVC.
-  # Nâng cấp lên JDBC nếu cần HA (multi-replica + external Postgres)
-  storage: rocksdb
-  storageClass: ""     # dùng default StorageClass của cluster
-  storageSize: 10Gi
-  resources:
-    requests: { cpu: "200m", memory: "512Mi" }
-    limits:   { cpu: "1",    memory: "1Gi" }
+# Tạo secret trước khi deploy:
+#   kubectl create secret generic hms-postgres-credentials \
+#     --from-literal=password=<strong-random-password> \
+#     -n data-modeling
+hms:
+  postgres:
+    useExistingSecret: true
+    existingSecret: hms-postgres-credentials
+    storageSize: 50Gi
+    storageClass: ""   # dùng default StorageClass của cluster
+    resources:
+      requests: { cpu: "500m", memory: "1Gi" }
+      limits:   { cpu: "1",    memory: "2Gi" }
+  metastore:
+    resources:
+      requests: { cpu: "500m", memory: "1Gi" }
+      limits:   { cpu: "1",    memory: "2Gi" }
 
 # ============================================================
 # LAYER 07: OBSERVABILITY

@@ -14,9 +14,10 @@
 *.env.local
 secrets/
 
-# Local notes & workbench files (không phải config chính thức)
-platform/notes.txt
-platform/commands.txt
+# Scratch/workbench files trong docs/scratch/ — không phải config chính thức
+# docs/notes/ vẫn được track (note quan trọng cần commit)
+docs/scratch/notes.txt
+docs/scratch/commands.txt
 
 # Temp
 tmp/

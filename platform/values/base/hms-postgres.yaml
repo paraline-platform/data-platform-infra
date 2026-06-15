@@ -1,0 +1,30 @@
+# ============================================================
+# BASE VALUES — PostgreSQL (Hive Metastore backend)
+# ============================================================
+# Bitnami PostgreSQL chart — làm backend lưu catalog metadata cho HMS
+# Config tĩnh: DB name, user, port — không thay đổi theo env
+# Config động (resources, storage, password) → values/env/hms-postgres.yaml.gotmpl
+# ============================================================
+
+auth:
+  database: metastore       # HMS sẽ tạo schema "metastore" trong DB này
+  username: hive            # JDBC URL: jdbc:postgresql://.../metastore?user=hive
+  # password: override bởi env (dev: inline, prod: useExistingSecret)
+
+primary:
+  service:
+    type: ClusterIP
+    ports:
+      postgresql: 5432
+
+  # Tắt initdb scripts riêng — HMS schematool sẽ tự init schema qua Job
+  initdb:
+    scripts: {}
+
+# Chỉ dùng primary node — không cần readReplica cho catalog metadata
+readReplicas:
+  replicaCount: 0
+
+# Tắt metrics sidecar (bật khi có Prometheus — layer 07)
+metrics:
+  enabled: false
