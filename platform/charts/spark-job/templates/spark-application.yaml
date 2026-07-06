@@ -68,6 +68,11 @@ spec:
     volumeMounts:
       {{- toYaml .volumeMounts | nindent 6 }}
     {{- end }}
+    {{- /* P2.2: envFrom secretRef — S3A creds qua Secret thay vì hardcode sparkConf */}}
+    {{- if .envFrom }}
+    envFrom:
+      {{- toYaml .envFrom | nindent 6 }}
+    {{- end }}
     {{- end }}
 
   executor:
@@ -87,5 +92,9 @@ spec:
     {{- if .volumeMounts }}
     volumeMounts:
       {{- toYaml .volumeMounts | nindent 6 }}
+    {{- end }}
+    {{- if .envFrom }}
+    envFrom:
+      {{- toYaml .envFrom | nindent 6 }}
     {{- end }}
     {{- end }}
