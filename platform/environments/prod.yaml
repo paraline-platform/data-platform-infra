@@ -1,7 +1,8 @@
 # ============================================================
-# ENVIRONMENTS/PROD.YAML — SINGLE SOURCE OF TRUTH cho môi trường PROD
+# ENVIRONMENTS/PROD.YAML — chỉ chứa những gì PROD KHÁC _defaults.yaml (P1.4)
 # ============================================================
-# Để deploy prod: ./scripts/deploy.sh prod
+# Baseline: environments/_defaults.yaml (deep merge, file này đè lên).
+# Để deploy: PROD_KUBE_CONTEXT=<context> ./scripts/deploy.sh prod
 # ============================================================
 
 global:
@@ -11,78 +12,60 @@ global:
   ingress:
     enabled: true
 
-# ============================================================
-# LAYER 02: STORAGE — MinIO
-# ============================================================
+# --- MinIO: distributed HA, secret, metrics ---
 minio:
   mode: distributed    # 4 pods, erasure coding, HA
   storage: 500Gi
   serviceType: ClusterIP
-  nodePorts:           # Không dùng NodePort ở prod
+  nodePorts:
     api: null
     console: null
   auth:
-    rootUser: admin
-    rootPassword: ""   # Không dùng — useExistingSecret: true
+    rootPassword: ""   # useExistingSecret: true
     # Tạo secret trước khi deploy:
     #   kubectl create secret generic minio-credentials \
     #     --from-literal=root-user=admin \
     #     --from-literal=root-password=<strong-random-password> \
     #     -n data-storage
     useExistingSecret: true
+    existingSecret: minio-credentials
   resources:
     requests: { cpu: "2",  memory: "4Gi" }
     limits:   { cpu: "4",  memory: "8Gi" }
   metrics:
     enabled: true
 
-# ============================================================
-# LAYER 01 + 03: MESSAGING — Kafka
-# ============================================================
+# --- Kafka: 3 brokers HA ---
 kafka:
-  replicas: 3          # 3 brokers → chịu được 1 broker chết
+  replicas: 3          # chịu được 1 broker chết
   storage: 500Gi
-  version: "4.1.0"   # Strimzi 0.51.0 hỗ trợ: 4.1.0, 4.1.1, 4.2.0
   resources:
     requests: { cpu: "2",  memory: "4Gi" }
     limits:   { cpu: "4",  memory: "8Gi" }
   schemaRegistry:
     enabled: true
 
-# ============================================================
-# LAYER 03: PROCESSING — Spark
-# ============================================================
+# --- Spark Operator ---
 spark:
   operator:
     resources:
       requests: { cpu: "500m", memory: "512Mi" }
       limits:   { cpu: "1",    memory: "1Gi" }
-  # Resource profiles cho Spark jobs: platform/spark-profiles/prod.yaml
 
-# ============================================================
-# LAYER 06: ORCHESTRATION — Airflow
-# ============================================================
+# --- Airflow: secret, RWX storage, gitSync ---
 airflow:
   auth:
-    adminPassword: ""           # dùng K8s Secret: kubectl create secret...
-    postgresPassword: ""        # external managed DB, không dùng bundled postgres
-
-  service:
-    type: ClusterIP             # expose qua Ingress
-
-  # Prod: RWX storage (EFS/NFS) → pods có thể chạy bất kỳ node nào (HA)
+    adminPassword: ""           # dùng K8s Secret
+    postgresPassword: ""        # external managed DB
   dags:
     storageClass: efs-sc        # AWS EFS, GCP Filestore, hoặc NFS provisioner
     storageSize: 10Gi
-    accessMode: ReadWriteMany   # RWX: tất cả nodes đều mount được → HA
-
-  # gitSync từ git repo thực — dev team push DAG → Airflow tự pull
+    accessMode: ReadWriteMany   # RWX: mọi node mount được → HA
   gitSync:
     enabled: true
-    repo: "https://github.com/your-org/data-platform-dags.git"
+    repo: "https://github.com/your-org/data-platform-dags.git"   # TODO(P2.5): trỏ repo airflow thật
     branch: "main"
     period: "60s"
-
   resources:
     webserver:
       requests: { cpu: "500m", memory: "1Gi" }
@@ -97,52 +80,38 @@ airflow:
       requests: { cpu: "500m", memory: "1Gi" }
       limits:   { cpu: "2",    memory: "2Gi" }
 
-# ============================================================
-# LAYER 01: INGESTION — Debezium CDC
-# ============================================================
+# --- Debezium: HA, không demo DB ---
 debezium:
   connect:
-    replicas: 2      # HA: 2 replicas, tasks phân phối
+    replicas: 2      # HA: tasks phân phối
     resources:
       requests: { cpu: "500m", memory: "1Gi" }
       limits:   { cpu: "2",    memory: "2Gi" }
   demoPostgres:
-    enabled: false   # Prod: point vào existing DB, không deploy demo
+    enabled: false   # prod: point vào existing DB
     password: ""
-    debeziumUser: debezium
     debeziumPassword: ""   # dùng K8s Secret
-    resources:
-      requests: { cpu: "100m", memory: "256Mi" }
-      limits:   { cpu: "500m", memory: "512Mi" }
-  connector:
-    enabled: true
 
-# ============================================================
-# LAYER 01: INGESTION — NiFi
-# ============================================================
+# --- NiFi: ClusterIP + Ingress, secret ---
 nifi:
   auth:
-    username: admin
-    password: ""   # dùng K8s Secret: kubectl create secret ...
+    password: ""   # dùng K8s Secret
   properties:
-    # Prod: dùng domain thật (không có port vì HTTPS qua Ingress port 443)
+    # domain thật, không port (HTTPS qua Ingress 443)
     webProxyHost: "nifi.data-platform.company.com"
     sensitiveKey: ""   # dùng K8s Secret
   service:
-    type: ClusterIP   # expose qua Ingress, không NodePort
+    type: ClusterIP
     nodePort: null
   storage: 50Gi
   resources:
     requests: { cpu: "1",  memory: "2Gi" }
     limits:   { cpu: "4",  memory: "8Gi" }
 
-# ============================================================
-# LAYER 04: LAKEHOUSE — Hive Metastore (Iceberg Catalog)
-# ============================================================
+# --- HMS: secret + storage/resources prod ---
 # Tạo secret trước khi deploy:
 #   kubectl create secret generic hms-postgres-credentials \
-#     --from-literal=password=<strong-random-password> \
-#     -n data-modeling
+#     --from-literal=password=<strong-random-password> -n data-modeling
 hms:
   postgres:
     useExistingSecret: true
@@ -157,25 +126,9 @@ hms:
       requests: { cpu: "500m", memory: "1Gi" }
       limits:   { cpu: "1",    memory: "2Gi" }
 
-# ============================================================
-# LAYER 07: OBSERVABILITY
-# ============================================================
-monitoring:
-  retention: 90d
-  resources:
-    prometheus:
-      requests: { cpu: "1",    memory: "4Gi" }
-      limits:   { cpu: "2",    memory: "8Gi" }
-    grafana:
-      requests: { cpu: "200m", memory: "256Mi" }
-      limits:   { cpu: "500m", memory: "512Mi" }
-
-# ============================================================
-# LAYER 05: DATA MODELING — Spark Thrift Server + dbt
-# ============================================================
+# --- Spark Thrift Server: k8s mode + Dynamic Allocation lớn ---
 sparkThriftServer:
   sparkMaster: "k8s://https://kubernetes.default.svc:443"
-  replicas: 1
   dynamicAllocation:
     enabled: true
     minExecutors: 0
@@ -188,3 +141,14 @@ sparkThriftServer:
 dbt:
   threads: 4
   schema: dbt_prod
+
+# --- Observability ---
+monitoring:
+  retention: 90d
+  resources:
+    prometheus:
+      requests: { cpu: "1",    memory: "4Gi" }
+      limits:   { cpu: "2",    memory: "8Gi" }
+    grafana:
+      requests: { cpu: "200m", memory: "256Mi" }
+      limits:   { cpu: "500m", memory: "512Mi" }

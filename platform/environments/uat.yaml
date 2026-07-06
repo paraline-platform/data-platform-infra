@@ -1,8 +1,9 @@
 # ============================================================
-# ENVIRONMENTS/UAT.YAML — SINGLE SOURCE OF TRUTH cho môi trường UAT
+# ENVIRONMENTS/UAT.YAML — chỉ chứa những gì UAT KHÁC _defaults.yaml (P1.4)
 # ============================================================
-# UAT: production-like nhưng nhỏ hơn — dùng k8s:// mode với Dynamic Allocation
-# Để deploy: ./scripts/deploy.sh uat
+# UAT: production-like nhưng nhỏ hơn — k8s:// mode với Dynamic Allocation.
+# Baseline: environments/_defaults.yaml (deep merge, file này đè lên).
+# Để deploy: UAT_KUBE_CONTEXT=<context> ./scripts/deploy.sh uat
 # ============================================================
 
 global:
@@ -12,35 +13,77 @@ global:
   ingress:
     enabled: true
 
-# ============================================================
-# LAYER 02: STORAGE — MinIO
-# ============================================================
+# --- MinIO: to hơn dev, ClusterIP + secret ---
 minio:
-  mode: standalone
   storage: 100Gi
   serviceType: ClusterIP
   nodePorts:
     api: null
     console: null
   auth:
-    rootUser: admin
     rootPassword: ""   # useExistingSecret: true
     useExistingSecret: true
     existingSecret: minio-credentials
+  resources:
+    requests: { cpu: "500m", memory: "1Gi" }
+    limits:   { cpu: "1",    memory: "2Gi" }
 
-# ============================================================
-# LAYER 03: STREAM — Kafka
-# ============================================================
+# --- Kafka: storage + resources lớn hơn dev ---
 kafka:
-  replicaCount: 1
   storage: 20Gi
   resources:
     requests: { cpu: "500m", memory: "1Gi" }
     limits:   { cpu: "1",    memory: "2Gi" }
 
-# ============================================================
-# LAYER 04: LAKEHOUSE — Hive Metastore (Iceberg Catalog)
-# ============================================================
+# --- Spark Operator ---
+spark:
+  operator:
+    resources:
+      requests: { cpu: "250m", memory: "512Mi" }
+      limits:   { cpu: "500m", memory: "1Gi" }
+
+# --- Airflow: password qua K8s Secret, dags dùng default StorageClass ---
+airflow:
+  auth:
+    adminPassword: ""      # dùng K8s Secret (P1-SOPS/P5 chuẩn hoá)
+    postgresPassword: ""
+  dags:
+    storageClass: ""       # default StorageClass của cluster uat
+    storageSize: 5Gi
+  resources:
+    webserver:
+      requests: { cpu: "300m", memory: "768Mi" }
+      limits:   { cpu: "1",    memory: "2Gi" }
+    scheduler:
+      requests: { cpu: "300m", memory: "768Mi" }
+      limits:   { cpu: "1",    memory: "2Gi" }
+    worker:
+      requests: { cpu: "200m", memory: "512Mi" }
+      limits:   { cpu: "1",    memory: "1Gi" }
+
+# --- Debezium: không deploy demo DB ---
+debezium:
+  demoPostgres:
+    enabled: false
+    password: ""
+    debeziumPassword: ""
+
+# --- NiFi: ClusterIP + secret, domain uat ---
+nifi:
+  auth:
+    password: ""           # dùng K8s Secret
+  properties:
+    webProxyHost: "nifi.data-platform-uat.company.com"
+    sensitiveKey: ""       # dùng K8s Secret
+  service:
+    type: ClusterIP
+    nodePort: null
+  storage: 10Gi
+  resources:
+    requests: { cpu: "500m", memory: "1Gi" }
+    limits:   { cpu: "2",    memory: "4Gi" }
+
+# --- HMS: secret + storage/resources lớn hơn ---
 hms:
   postgres:
     useExistingSecret: true
@@ -54,20 +97,14 @@ hms:
       requests: { cpu: "200m", memory: "512Mi" }
       limits:   { cpu: "500m", memory: "1Gi" }
 
-# ============================================================
-# LAYER 05: DATA MODELING — Spark Thrift Server + dbt
-# ============================================================
+# --- Spark Thrift Server: k8s mode + Dynamic Allocation ---
 sparkThriftServer:
   sparkMaster: "k8s://https://kubernetes.default.svc:443"
-  replicas: 1
   dynamicAllocation:
     enabled: true
     minExecutors: 0
     maxExecutors: 2
     executorIdleTimeout: "60s"
-  resources:
-    requests: { cpu: "500m", memory: "1Gi" }
-    limits:   { cpu: "1",    memory: "2Gi" }
 
 dbt:
   threads: 2

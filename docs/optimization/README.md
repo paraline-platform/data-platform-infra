@@ -46,23 +46,24 @@ P1 dùng SOPS+age vì lúc đó chưa có secret store. Khi đã định setup V
 
 ## Bảng theo dõi tiến độ
 
-### P0 — Sửa lỗi khẩn cấp
-- [ ] P0.1 — Thêm Helm repo `minio` vào helmfile
-- [ ] P0.2 — Bỏ `continue-on-error` / `|| true` trong CI infra
-- [ ] P0.3 — Sửa `deploy.sh` ép context kind cho mọi env
-- [ ] P0.4 — Chuẩn hoá key `kafka.replicas` trong uat.yaml
-- [ ] P0.5 — Sửa `apt-get update` trong run-dbt.sh (fix tạm, P2 thay hẳn)
-- [ ] P0.6 — Rotate toàn bộ credentials + thêm gitleaks vào CI cả 3 repo
+### P0 — Sửa lỗi khẩn cấp *(thực thi 2026-07-06 — chi tiết + phát hiện ngoài kế hoạch: xem "Nhật ký thực thi" trong file P0)*
+- [x] P0.1 — Thêm Helm repo `minio` vào helmfile *(+ fix template sống trong comment gotmpl)*
+- [x] P0.2 — Bỏ `continue-on-error` / `|| true` trong CI infra
+- [x] P0.3 — Sửa `deploy.sh` ép context kind cho mọi env *(verify 3 case âm fail-closed)*
+- [x] P0.4 — Chuẩn hoá key uat.yaml — render pass cả 3 env *(+ fix nil-safe hms-postgres gotmpl; schemaRegistry hoá ra không cần — xem doc P0)*
+- [x] P0.5 — Sửa `apt-get update` trong run-dbt.sh (fix tạm, P2 thay hẳn)
+- [x] P0.6a — gitleaks vào CI cả 3 repo *(verify local: bắt được Fernet key thật mà scan tay sót)*
+- [ ] P0.6b — Rotate toàn bộ credentials *(chờ cluster + gộp vào P1; danh sách đã bổ sung Fernet key)*
 
-### P1 — Secrets, env layer, RBAC
-- [ ] P1.1 — SOPS + age: sinh key, `.sops.yaml`, mã hoá secrets từng env
-- [ ] P1.2 — Tích hợp helmfile `secrets:` + helm-secrets plugin
-- [ ] P1.3 — Sửa `airflow.yaml.gotmpl` không render credentials plaintext vào env var
-- [ ] P1.4 — Tạo `environments/_defaults.yaml`, rút gọn dev/uat/prod thành diff-only
-- [ ] P1.5 — Verify: `helmfile template` pass cho CẢ 3 env (dev/uat/prod)
-- [ ] P1.6 — Đổi ClusterRoleBinding → RoleBinding namespaced cho Airflow
-- [ ] P1.7 — Pod Security Standards labels + NetworkPolicy cơ bản
-- [ ] P1.8 — ResourceQuota/LimitRange cho uat/prod
+### P1 — Secrets, env layer, RBAC *(thực thi 2026-07-06 — deviation + phát hiện: xem "Nhật ký thực thi" trong file P1)*
+- [x] P1.1 — SOPS + age: key sinh tại `%APPDATA%\sops\age\keys.txt` *(⚠️ user backup vào password manager!)*, `.sops.yaml`, 3 env secrets mã hoá
+- [x] P1.2 — helmfile `secrets:` + helm-secrets 4.8.0 — verify giải mã end-to-end trên render
+- [x] P1.3 — Connection MinIO → extraSecrets/Secret object; fernetKey → SOPS *(+ bonus: blank password trong 3 chart values — HEAD sạch 100%)*
+- [x] P1.4 — `_defaults.yaml` + dev/uat/prod diff-only — **zero-diff PASS cả 3 env** (3 lần validate)
+- [x] P1.5 — CI render matrix 3 env *(⚠️ user tạo GitHub secret `SOPS_AGE_KEY` trước lần push tới)*
+- [x] P1.6 — RoleBinding namespaced (manifest đổi xong; `auth can-i` verify chờ cluster)
+- [x] P1.7 — PSS labels 9 namespaces + NetworkPolicy baseline *(kindnet không enforce — hiệu lực thật cần Calico/cloud CNI; test pipeline chờ cluster)*
+- [x] P1.8 — Quota + LimitRange uat/prod — kubeconform 76 resources valid
 
 ### P2 — Tối ưu code
 - [ ] P2.1 — `run-dbt.sh` dùng image GHCR thay pip-install runtime

@@ -1,0 +1,27 @@
+# ============================================================
+# GITLEAKS — Secret scan (P0.6)
+# Chặn credentials mới lọt vào git. Các file dev creds hiện có
+# được allowlist ĐÍCH DANH trong .gitleaks.toml kèm TODO(P1/P5)
+# — xoá allowlist khi secrets chuyển sang SOPS/Vault.
+# ============================================================
+name: Secret Scan
+
+on:
+  pull_request:
+  push:
+    branches: [stg, uat, prd]   # TODO(P4): đổi thành [main]
+
+permissions:
+  contents: read
+
+jobs:
+  gitleaks:
+    name: gitleaks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # scan cả range commit của PR, không chỉ HEAD
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

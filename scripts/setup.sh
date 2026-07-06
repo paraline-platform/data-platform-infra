@@ -86,6 +86,12 @@ if [[ -f "${LIMITRANGE_FILE}" ]]; then
   info "LimitRange (${ENV}) applied"
 fi
 
+# NetworkPolicy baseline (P1.7): default-deny ingress + allow intra-platform.
+# LƯU Ý: kindnet (CNI mặc định của Kind) KHÔNG enforce NetworkPolicy — trên dev
+# đây là no-op vô hại; có hiệu lực thật trên cluster dùng Calico/Cilium/cloud CNI.
+kubectl apply -f platform/manifests/network-policies/
+info "NetworkPolicies applied (enforce phụ thuộc CNI)"
+
 # ---- Bước 5: Add Helm repositories ----
 section "5/5" "Thêm Helm repositories..."
 helmfile -f platform/helmfile.yaml.gotmpl repos

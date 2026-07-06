@@ -1,0 +1,14 @@
+# ============================================================
+# SOPS CONFIG — quy tắc mã hoá secrets (P1.1)
+# ============================================================
+# File match path_regex sẽ được sops mã hoá bằng age key bên dưới.
+# Private key: mỗi người deploy giữ tại $SOPS_AGE_KEY_FILE
+# (Windows: %APPDATA%\sops\age\keys.txt) — TUYỆT ĐỐI không commit.
+# CI: GitHub secret SOPS_AGE_KEY (nội dung keys.txt).
+# Sau này lên cloud: thay/thêm kms: arn:... rồi `sops updatekeys`.
+
+creation_rules:
+  # [/\\] để match cả Windows (\) lẫn Unix (/) path separator —
+  # sops trên Windows so đường dẫn bằng backslash
+  - path_regex: platform[/\\]environments[/\\]secrets[/\\].*\.yaml$
+    age: age125fsjae5txjnzypcf7s5n5w5e7h2c9gg0p2nga50z7ytl2nfweusfjg4v0

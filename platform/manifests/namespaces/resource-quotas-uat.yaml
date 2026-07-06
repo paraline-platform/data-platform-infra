@@ -1,0 +1,112 @@
+# ResourceQuota — UAT (P1.8)
+# Scale ~2x dev: đủ chạy production-like workload nhỏ (Dynamic Allocation maxExecutors=2).
+# setup.sh tự pick file theo env: ./scripts/setup.sh uat
+
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: quota-uat
+  namespace: data-ingestion
+spec:
+  hard:
+    requests.cpu: "6"
+    requests.memory: "12Gi"
+    limits.cpu: "16"
+    limits.memory: "24Gi"
+    pods: "30"
+    services: "15"
+    persistentvolumeclaims: "15"
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: quota-uat
+  namespace: data-storage
+spec:
+  hard:
+    requests.cpu: "2"
+    requests.memory: "4Gi"
+    limits.cpu: "4"
+    limits.memory: "8Gi"
+    pods: "15"
+    persistentvolumeclaims: "10"
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: quota-uat
+  namespace: data-processing
+spec:
+  hard:
+    requests.cpu: "16"
+    requests.memory: "32Gi"
+    limits.cpu: "32"
+    limits.memory: "64Gi"
+    pods: "50"
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: quota-uat
+  namespace: data-modeling
+spec:
+  hard:
+    # Thrift Server k8s mode: driver + tối đa 2 executors (Dynamic Allocation)
+    requests.cpu: "4"
+    requests.memory: "8Gi"
+    limits.cpu: "12"
+    limits.memory: "16Gi"
+    pods: "30"
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: quota-uat
+  namespace: data-governance
+spec:
+  hard:
+    requests.cpu: "2"
+    requests.memory: "4Gi"
+    limits.cpu: "4"
+    limits.memory: "8Gi"
+    pods: "20"
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: quota-uat
+  namespace: data-orchestration
+spec:
+  hard:
+    requests.cpu: "12"
+    requests.memory: "24Gi"
+    limits.cpu: "24"
+    limits.memory: "48Gi"
+    pods: "60"
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: quota-uat
+  namespace: data-observability
+spec:
+  hard:
+    requests.cpu: "1"
+    requests.memory: "2Gi"
+    limits.cpu: "2"
+    limits.memory: "4Gi"
+    pods: "20"
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: quota-uat
+  namespace: data-ai
+spec:
+  hard:
+    requests.cpu: "2"
+    requests.memory: "4Gi"
+    limits.cpu: "4"
+    limits.memory: "8Gi"
+    pods: "15"

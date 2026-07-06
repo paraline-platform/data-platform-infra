@@ -16,7 +16,7 @@ hive:
 minio:
   endpoint: "http://minio.data-storage.svc.cluster.local:9000"
   accessKey: "admin"
-  secretKey: "minio-dev-password"
+  secretKey: ""    # LUÔN inject từ values/env gotmpl (nguồn: SOPS) — không default plaintext
 
 jars:
   icebergVersion: "1.6.1"

@@ -24,19 +24,32 @@
 # ============================================================
 
 # Document 1: environments (PHẢI tách riêng bằng ---)
+# P1.4: _defaults.yaml load TRƯỚC (baseline đầy đủ mọi key mà gotmpl tham chiếu),
+# env file merge đè lên sau → env file chỉ chứa phần KHÁC defaults.
+# P1: secrets/ (SOPS-encrypted) load SAU CÙNG — đè password rỗng trong defaults.
+# Cần: helm plugin helm-secrets + age key tại $SOPS_AGE_KEY_FILE (CI: secret SOPS_AGE_KEY)
 environments:
   dev:
     values:
+      - environments/_defaults.yaml
       - environments/dev.yaml
       - spark-profiles/dev.yaml     # → .Values.profiles available in all gotmpl templates
+    secrets:
+      - environments/secrets/dev.yaml
   uat:
     values:
+      - environments/_defaults.yaml
       - environments/uat.yaml
       - spark-profiles/prod.yaml    # uat dùng prod profiles (resource đủ lớn)
+    secrets:
+      - environments/secrets/uat.yaml
   prod:
     values:
+      - environments/_defaults.yaml
       - environments/prod.yaml
       - spark-profiles/prod.yaml
+    secrets:
+      - environments/secrets/prod.yaml
 
 ---
 # Document 2: repositories + helmDefaults + releases
@@ -60,6 +73,8 @@ repositories:
     url: https://grafana.github.io/helm-charts
   - name: ingress-nginx
     url: https://kubernetes.github.io/ingress-nginx
+  - name: minio
+    url: https://charts.min.io/
 
 helmDefaults:
   wait: true
@@ -81,7 +96,10 @@ releases:
   #   version: "4.10.0"
   #   labels:
   #     layer: "00-infra"
-  #   installed: {{ .Values.global.ingress.enabled }}
+  #   NOTE: file .gotmpl được render TRƯỚC khi parse YAML nên dấu # KHÔNG bảo vệ
+  #   được biểu thức {{`{{ }}`}} — phải escape khi để trong comment.
+  #   Khi bật lại release, dùng dạng nil-safe để env thiếu key không làm vỡ render:
+  #   installed: {{`{{ .Values | get "global.ingress.enabled" false }}`}}
   #   values:
   #     - values/base/ingress-nginx.yaml
 

@@ -66,6 +66,10 @@ airflow:
   auth:
     adminPassword: "<...>"
     postgresPassword: "<...>"
+  # Fernet key: gitleaks phát hiện key thật hardcode ở values/base/airflow.yaml:40 (P0.6)
+  # → sinh key MỚI (python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())")
+  #   đưa vào đây, xoá khỏi values/base/airflow.yaml, và xoá allowlist tương ứng trong .gitleaks.toml
+  fernetKey: "<KEY-MỚI>"
 nifi:
   auth:
     password: "<...>"
@@ -341,9 +345,43 @@ cp platform/manifests/namespaces/resource-quotas-dev.yaml platform/manifests/nam
 
 ## Definition of Done — P1
 
-- [ ] Không còn password plaintext ở bất kỳ file nào trong HEAD (gitleaks xanh không cần allowlist env files)
-- [ ] `git show` file secrets chỉ thấy bản mã hoá sops
-- [ ] `helmfile template` pass cả dev/uat/prod, CI render matrix 3 env
-- [ ] `kubectl describe pod` trên Airflow pods không lộ credentials
-- [ ] Airflow chỉ có quyền SparkApplication trong `data-processing` (kubectl auth can-i verify)
-- [ ] Full pipeline dev chạy xanh với NetworkPolicy bật
+- [x] Không còn password plaintext ở bất kỳ file nào trong HEAD *(verify 2026-07-06: gitleaks `--no-git` scan working tree = 0 leak; allowlist chỉ còn phục vụ git history)*
+- [x] `git show`/file secrets trên đĩa chỉ thấy bản mã hoá sops *(verify: value = ENC[AES256_GCM,...], round-trip decrypt OK)*
+- [x] `helmfile template` pass cả dev/uat/prod *(verify: zero-diff 3 lần — sau defaults layer, sau SOPS, sau blank chart defaults)*; CI render matrix 3 env *(cần GitHub secret `SOPS_AGE_KEY` trước lần push tới)*
+- [ ] `kubectl describe pod` trên Airflow pods không lộ credentials — **pending cluster** *(đã verify ở mức values: connection nằm trong extraSecrets→Secret object, env: list sạch)*
+- [ ] Airflow chỉ có quyền SparkApplication trong `data-processing` — manifest đã đổi RoleBinding, **`kubectl auth can-i` verify pending cluster**
+- [ ] Full pipeline dev chạy xanh với NetworkPolicy + PSS bật — **pending cluster** *(manifests authored + kubeconform valid; lưu ý kindnet không enforce netpol)*
+
+---
+
+## Nhật ký thực thi (2026-07-06) — deviation & phát hiện
+
+### 1. Đảo thứ tự: Phần B (defaults layer) làm TRƯỚC Phần A (SOPS)
+Doc viết A→B; thực thi B→A. Lý do: Phần B là refactor thuần — **không được đổi một byte output render**. Làm B trước thì validate được bằng diff byte-level bản render trước/sau (snapshot 3 env + airflow write-values). Nếu làm A trước, output đổi nguồn password → mất mốc so sánh. Kết quả: **zero-diff PASS cả 3 env, 3 lần liên tiếp** (sau defaults layer → sau SOPS → sau blank chart defaults).
+
+### 2. Phương pháp zero-diff cần chuẩn hoá 2 nguồn nhiễu
+Render không deterministic ở 2 chỗ: bitnami postgres tự sinh `postgres-password` random khi template (deploy thật dùng lookup nên không sao), NiFi chart sinh UUID mỗi lần render. Normalize 2 pattern này trước khi diff. Ai lặp lại quy trình này: render 2 lần liên tiếp trước để xác định nhiễu, rồi mới snapshot.
+
+### 3. Bonus ngoài kế hoạch: blank password trong 3 chart values
+`charts/{spark-thrift-server,hive-metastore,debezium}/values.yaml` chứa dev passwords làm default. Zero-diff sau khi blank chứng minh env gotmpl **luôn** override các key này → default plaintext là thừa và nguy hiểm. Kết quả: **HEAD của repo sạch password 100%** — vượt DoD gốc (vốn chấp nhận chart values đến P5).
+
+### 4. Windows quirks (ai làm trên Windows cần biết)
+- **sops path_regex**: sops so đường dẫn bằng `\` trên Windows → regex phải dùng `[/\\]` thay `/` (`.sops.yaml` đã sửa).
+- **age key location**: `%APPDATA%\sops\age\keys.txt` (mặc định sops trên Windows) + user env var `SOPS_AGE_KEY_FILE` để chắc chắn mọi shell tìm thấy. **PHẢI backup file này vào password manager.**
+- **PowerShell 5.1 `Set-Content -Encoding UTF8`** ghi BOM → kubeconform báo "control characters". Dùng `[System.IO.File]::WriteAllText` với `UTF8Encoding($false)`.
+- helm-secrets 4.8.0 hoạt động tốt trên Windows (helm tự tìm sh của Git).
+
+### 5. fernetKey: nil-safe + chart tự sinh cho env chưa điền
+`values/env/airflow.yaml.gotmpl` chỉ emit `fernetKey` khi secrets có giá trị (dev); uat/prod placeholder `""` → không emit → chart airflow tự sinh key + lưu Secret riêng (hành vi mặc định). Tránh được việc phải bịa key cho env chưa tồn tại.
+
+### 6. P1.3 validate qua write-values (không tải được airflow chart local)
+Chart airflow chỉ có trên archive.apache.org (bị chặn — xem nhật ký P0). Validation: `helmfile write-values` xác nhận connection string nằm dưới `extraSecrets.airflow-connections.stringData` (→ Secret object) và `env:` list chỉ còn entry không nhạy cảm. Validate render manifest đầy đủ: chạy trên CI (runner không bị chặn).
+
+### 7. P1.7 deviation: netpol baseline allow-platform thay vì port-specific
+Doc gốc viết policy siết theo port (10000/9083...). Thực thi chọn mô hình 2 bước: bước 1 (đã làm) = default-deny ingress + allow same-namespace + allow from `platform=data-lakehouse` namespaces — chặn traffic lạ, rủi ro vỡ gần 0; bước 2 (khi có cluster test) = siết port đích danh. Lý do: port-specific chưa từng test sống = tự tạo sự cố "dbt fail 2h sáng vì thiếu port". **Lưu ý quan trọng: kindnet (CNI mặc định Kind) KHÔNG enforce NetworkPolicy** — trên dev các policy là no-op vô hại; hiệu lực thật cần Calico/Cilium/cloud CNI.
+
+### 8. Việc còn treo sau P1
+- [ ] **User action: tạo GitHub secret `SOPS_AGE_KEY`** (repo infra → Settings → Secrets → Actions; giá trị = nội dung `%APPDATA%\sops\age\keys.txt`) — thiếu nó job render CI sẽ đỏ.
+- [ ] **User action: backup age key** vào password manager.
+- [ ] Rotation credentials (P0.6b) — giá trị cũ vẫn dùng trong SOPS; rotate khi cluster dev chạy (sửa bằng `sops platform/environments/secrets/dev.yaml` + redeploy; postgres đã có PVC cần ALTER USER hoặc reset volume).
+- [ ] Verify trên cluster sống: `kubectl auth can-i` (P1.6), pipeline với PSS baseline (P1.7), `kubectl describe pod` airflow (P1.3).

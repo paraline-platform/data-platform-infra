@@ -1,0 +1,23 @@
+# ============================================================
+# GITLEAKS CONFIG — data-platform-infra
+# ============================================================
+# Allowlist CHỈ đích danh file — không wildcard rộng.
+# Mỗi entry phải có TODO trỏ tới phase xoá nó.
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "P1 (2026-07-06): HEAD đã SẠCH password — secrets nằm ở environments/secrets/*.yaml (SOPS-encrypted). Các path dưới đây giữ trong allowlist vì GIT HISTORY vẫn chứa giá trị cũ tại đó (full-history scan sẽ flag). Xoá entry sau khi rotate xong toàn bộ (P0.6b) và squash/để lịch sử cũ hết giá trị."
+paths = [
+  # Docs chứa ví dụ minh hoạ, không phải secret thật
+  '''docs/.*''',
+  # History: dev passwords (HEAD sạch từ P1)
+  '''platform/environments/dev\.yaml''',
+  # History: Fernet key cũ (HEAD sạch từ P1 — key chuyển vào SOPS, PHẢI rotate ở P0.6b)
+  '''platform/values/base/airflow\.yaml''',
+  # History: chart defaults từng chứa minio/postgres passwords (HEAD sạch từ P1)
+  '''platform/charts/spark-thrift-server/values\.yaml''',
+  '''platform/charts/hive-metastore/values\.yaml''',
+  '''platform/charts/debezium/values\.yaml''',
+]

@@ -4,6 +4,14 @@
 # Bridge .Values → Helm chart values.
 # Không hardcode ở đây — tất cả đọc từ environments/<env>.yaml.
 
+# --- Fernet key (từ environments/secrets/<env>.yaml qua SOPS) ---
+# get nil-safe: env chưa điền secret (uat/prod placeholder "") → không emit key,
+# chart tự sinh fernet key + lưu vào Secret riêng (hành vi mặc định của chart)
+{{- $fernet := .Values | get "airflow.auth.fernetKey" "" }}
+{{- if $fernet }}
+fernetKey: {{ $fernet | quote }}
+{{- end }}
+
 # --- Database ---
 postgresql:
   auth:
@@ -57,14 +65,22 @@ config:
   webserver:
     instance_name: "Data Platform [{{ .Values.global.env | upper }}]"
 
-# --- Connections & Variables (inject qua env vars) ---
-# Airflow đọc AIRFLOW_CONN_{ID} và AIRFLOW_VAR_{KEY} khi pod start.
-# Không cần tạo thủ công qua UI.
-env:
-  # MinIO S3-compatible — dùng: S3Hook(aws_conn_id="minio_s3")
-  - name: AIRFLOW_CONN_MINIO_S3
-    value: {{ printf `{"conn_type": "aws", "login": "%s", "password": "%s", "extra": {"endpoint_url": "http://minio.data-storage.svc.cluster.local:9000", "aws_access_key_id": "%s", "aws_secret_access_key": "%s"}}` .Values.minio.auth.rootUser .Values.minio.auth.rootPassword .Values.minio.auth.rootUser .Values.minio.auth.rootPassword | quote }}
+# --- Connection chứa CREDENTIALS → K8s Secret, KHÔNG plain env (P1.3) ---
+# Plain env trong pod template lộ qua `kubectl describe pod`/crash dump.
+# extraSecrets tạo Secret object; extraEnvFrom mount vào pods qua secretRef —
+# giá trị chỉ đọc được khi có quyền get secret (RBAC), không lộ ở pod spec.
+extraSecrets:
+  airflow-connections:
+    stringData: |
+      AIRFLOW_CONN_MINIO_S3: {{ printf `{"conn_type": "aws", "login": "%s", "password": "%s", "extra": {"endpoint_url": "http://minio.data-storage.svc.cluster.local:9000", "aws_access_key_id": "%s", "aws_secret_access_key": "%s"}}` .Values.minio.auth.rootUser .Values.minio.auth.rootPassword .Values.minio.auth.rootUser .Values.minio.auth.rootPassword | quote }}
 
+extraEnvFrom: |
+  - secretRef:
+      name: airflow-connections
+
+# --- Connections & Variables KHÔNG chứa secret (inject qua env vars) ---
+# Airflow đọc AIRFLOW_CONN_{ID} và AIRFLOW_VAR_{KEY} khi pod start.
+env:
   # Kubernetes in-cluster — dùng: SparkKubernetesOperator(kubernetes_conn_id="kubernetes_default")
   - name: AIRFLOW_CONN_KUBERNETES_DEFAULT
     value: '{"conn_type": "kubernetes", "extra": {"in_cluster": "True"}}'

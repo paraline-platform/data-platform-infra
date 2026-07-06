@@ -138,16 +138,16 @@ Trong `environments/uat.yaml`:
 ```yaml
 kafka:
   replicas: 1          # đổi từ replicaCount
-  version: "4.1.0"     # thêm — khớp dev/prod
+  version: "4.1.0"     # thêm — gotmpl đọc unconditionally, thiếu là vỡ render
   storage: 20Gi
   resources:
     requests: { cpu: "500m", memory: "1Gi" }
     limits:   { cpu: "1",    memory: "2Gi" }
-  schemaRegistry:
-    enabled: false
 ```
 
-Với các key thiếu còn lại (`airflow`, `nifi`, `debezium`, `spark`, `minio.resources`, `monitoring`…): **đừng copy-paste từ prod.yaml vào** — đó là việc của P1.4 (defaults layer). Nếu cần CI uat xanh ngay trong lúc chờ P1.4, copy tạm và đánh dấu `# TODO(P1.4): xoá khi có _defaults.yaml`.
+> **Sửa docs (2026-07-06, khi thực thi):** bản đầu của doc này khuyên thêm cả `schemaRegistry` — **sai**. Grep toàn bộ `values/env/*.gotmpl` cho thấy không template nào đọc `kafka.schemaRegistry` (nó là key chết, chỉ dev/prod khai cho tương lai). Nguyên tắc: chỉ thêm key mà gotmpl thực sự tham chiếu — xác định bằng grep `\.Values\.` chứ không đoán theo file env khác.
+
+Bộ key **bắt buộc** để uat render được (xác định bằng grep, đã áp dụng): `minio.resources`, `kafka.version`, `spark.operator.resources`, `airflow.{auth,service,dags,gitSync,resources}`, `nifi.{auth,properties,service,storage,resources}`, `debezium.{connect,demoPostgres,connector}`. Tất cả đã thêm vào uat.yaml kèm marker `# TODO(P1.4): chuyển về _defaults.yaml`.
 
 ### Verify
 ```bash
@@ -228,15 +228,45 @@ paths = [
 
 ### Verify
 - Mở PR chứa chuỗi giả `AKIAIOSFODNN7EXAMPLE` → CI phải đỏ.
-- Checklist rotate: MinIO root, Airflow admin + postgres, NiFi admin + sensitiveKey, HMS postgres, Debezium demo postgres.
+- Checklist rotate: MinIO root, Airflow admin + postgres, NiFi admin + sensitiveKey, HMS postgres, Debezium demo postgres, **Airflow Fernet key** (`values/base/airflow.yaml:40` — do chính gitleaks phát hiện khi triển khai P0.6; key này mã hoá mọi connection password trong metadata DB nên rotate nó đồng nghĩa phải re-encrypt connections).
 
 ---
 
 ## Definition of Done — P0
 
-- [ ] `helmfile repos` chạy pass trên máy sạch không cần `|| true`
-- [ ] CI job `helmfile-template` có thể FAIL thật (đã bỏ continue-on-error)
-- [ ] `./scripts/deploy.sh prod` từ chối chạy khi context không đúng
-- [ ] `helmfile -e uat template` pass (ít nhất là với fix tạm)
-- [ ] gitleaks chạy trên PR ở cả 3 repo
-- [ ] Toàn bộ credentials cũ đã rotate
+- [x] `helmfile repos` chạy pass trên máy sạch không cần `|| true` *(verify 2026-07-06)*
+- [x] CI job `helmfile-template` có thể FAIL thật (đã bỏ continue-on-error) *(syntax verify local; hành vi thật xác nhận ở lần push tới)*
+- [x] `./scripts/deploy.sh prod` từ chối chạy khi context không đúng *(verify 3 case âm: prod thiếu biến, uat lệch context, env rác)*
+- [x] `helmfile -e uat template` pass *(verify cả dev/uat/prod — xem ghi chú airflow bên dưới)*
+- [x] gitleaks chạy trên PR ở cả 3 repo *(config verify bằng gitleaks 8.21.2 local: infra bắt 1 leak thật rồi về 0 sau allowlist đích danh; airflow/processing 0 leak)*
+- [ ] Toàn bộ credentials cũ đã rotate — **chưa làm**: cần cluster đang chạy + nên gộp vào P1 (SOPS cho chỗ chứa password mới). Danh sách rotate ở P0.6, đã bổ sung Fernet key.
+
+---
+
+## Nhật ký thực thi (2026-07-06) — các phát hiện ngoài kế hoạch
+
+Ghi lại để người sau hiểu vì sao code khác với bản đầu của doc:
+
+### 1. Template sống trong comment YAML làm vỡ `helmfile repos`
+`helmfile.yaml.gotmpl:86` có `{{ .Values.global.ingress.enabled }}` trong dòng **đã comment** (block ingress-nginx). File `.gotmpl` được render Go template **trước** khi parse YAML → dấu `#` không bảo vệ được biểu thức. Chạy `repos` không kèm `-e` → env `default` không có values → `map has no entry for key "global"`. Đây chính là lỗi mà `|| true` trong CI che suốt thời gian qua, và `setup.sh:91` cũng gọi đúng dạng lệnh này.
+**Fix:** escape bằng `` {{`...`}} `` + đổi sang dạng nil-safe `{{ .Values | get "global.ingress.enabled" false }}` để dùng khi bật lại release.
+**Bài học:** không bao giờ để `{{ }}` sống trong comment của file gotmpl.
+
+### 2. `missingkey=error` — cả `if` cũng nổ khi key vắng mặt
+`values/env/hms-postgres.yaml.gotmpl:25` dùng `{{- if .Values.hms.postgres.storageClass }}` — key này chỉ prod có. Helmfile render values gotmpl với `missingkey=error`: **chạm** vào key không tồn tại (kể cả trong điều kiện if) là lỗi ngay, không trả về nil.
+**Fix:** `{{ $sc := .Values | get "hms.postgres.storageClass" "" }}` — nil-safe cho cả 3 env.
+**Bài học:** trong gotmpl, mọi key *có thể vắng mặt ở một env nào đó* phải đọc qua `get` với default. P1.4 (`_defaults.yaml`) xoá tận gốc lớp lỗi này.
+
+### 3. Quy tắc vận hành: sửa `repositories:` xong phải chạy `repos` trước khi dùng `--skip-deps`
+`--skip-deps` bảo helmfile bỏ qua bước add/update repo → helm dùng config local. Thêm repo vào file mà chưa chạy `helmfile repos` một lần → `Error: repo minio not found`.
+
+### 4. Chart airflow 1.14.0 không tải được từ mạng local
+Chart chỉ được host trên `archive.apache.org` — host này (và cả web.archive.org) không kết nối được từ mạng hiện tại (nghi ISP chặn/routing); mirror dlcdn/Aliyun chỉ giữ bản mới nhất (1.22.0). **GitHub runner không bị ảnh hưởng** — CI vẫn render đủ.
+**Workaround local:** validate bằng `-l "name!=airflow"` cho template + `helmfile -l name=airflow write-values` để verify riêng values gotmpl của airflow (không cần tải chart). Đã pass cả 3 env.
+**Việc treo:** khi có mạng khác, tải `https://archive.apache.org/dist/airflow/helm-chart/1.14.0/airflow-1.14.0.tgz` về `platform/vendor/` và trỏ helmfile sang local path — miễn nhiễm vĩnh viễn. Nâng chart lên 1.22.0 là task có kế hoạch riêng (chart mới mặc định Airflow 3.x — không phải quick fix).
+
+### 5. gitleaks bắt được secret mà scan tay bỏ sót
+Fernet key thật tại `values/base/airflow.yaml:40` — không nằm trong inventory ban đầu của docs. Đã allowlist đích danh kèm TODO(P1) và bổ sung vào danh sách rotate. Đây là minh chứng trực tiếp cho giá trị của P0.6: máy quét theo pattern thắng mắt người.
+
+### 6. deploy.sh: máy hiện tại đang ở context `kind-napas-platform`
+Nghĩa là với script cũ, chạy `deploy.sh` **bất kỳ env nào** cũng sẽ âm thầm switch context sang `kind-data-platform` — đúng loại tai nạn mà P0.3 phòng. Script mới chỉ auto-switch cho dev, uat/prod yêu cầu `UAT_KUBE_CONTEXT`/`PROD_KUBE_CONTEXT` khớp context hiện tại.

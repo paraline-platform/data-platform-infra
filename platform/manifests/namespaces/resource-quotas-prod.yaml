@@ -1,0 +1,119 @@
+# ResourceQuota — PROD (P1.8)
+# Chính prod mới là nơi 1 Spark job cấu hình sai nuốt cả cluster —
+# quota là chốt chặn cuối. Số dưới đây là ĐIỂM XUẤT PHÁT dựa trên
+# environments/prod.yaml (Kafka 3 brokers 4CPU/8Gi, MinIO distributed 4 pods,
+# Spark maxExecutors=8) — HIỆU CHỈNH theo capacity cluster thật trước khi apply.
+# setup.sh tự pick file theo env: ./scripts/setup.sh prod
+
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: quota-prod
+  namespace: data-ingestion
+spec:
+  hard:
+    # Kafka 3× (2req/4lim CPU) + NiFi (1/4) + Debezium 2× (500m/2) = ~8 req / ~20 lim
+    requests.cpu: "12"
+    requests.memory: "24Gi"
+    limits.cpu: "28"
+    limits.memory: "56Gi"
+    pods: "50"
+    services: "20"
+    persistentvolumeclaims: "20"
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: quota-prod
+  namespace: data-storage
+spec:
+  hard:
+    # MinIO distributed 4 pods × (2req/4lim CPU, 4/8Gi)
+    requests.cpu: "10"
+    requests.memory: "20Gi"
+    limits.cpu: "20"
+    limits.memory: "40Gi"
+    pods: "20"
+    persistentvolumeclaims: "15"
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: quota-prod
+  namespace: data-processing
+spec:
+  hard:
+    # xlarge profile: driver 4c/4g + 2×4c/8g executors; nhiều job song song
+    requests.cpu: "32"
+    requests.memory: "64Gi"
+    limits.cpu: "64"
+    limits.memory: "128Gi"
+    pods: "100"
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: quota-prod
+  namespace: data-modeling
+spec:
+  hard:
+    # Thrift Server driver 2/4Gi + Dynamic Allocation maxExecutors=8
+    requests.cpu: "12"
+    requests.memory: "24Gi"
+    limits.cpu: "24"
+    limits.memory: "48Gi"
+    pods: "40"
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: quota-prod
+  namespace: data-governance
+spec:
+  hard:
+    requests.cpu: "6"
+    requests.memory: "12Gi"
+    limits.cpu: "12"
+    limits.memory: "24Gi"
+    pods: "30"
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: quota-prod
+  namespace: data-orchestration
+spec:
+  hard:
+    requests.cpu: "16"
+    requests.memory: "32Gi"
+    limits.cpu: "32"
+    limits.memory: "64Gi"
+    pods: "100"
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: quota-prod
+  namespace: data-observability
+spec:
+  hard:
+    # Prometheus prod: 1-2 CPU / 4-8Gi (retention 90d)
+    requests.cpu: "4"
+    requests.memory: "8Gi"
+    limits.cpu: "8"
+    limits.memory: "16Gi"
+    pods: "30"
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: quota-prod
+  namespace: data-ai
+spec:
+  hard:
+    requests.cpu: "4"
+    requests.memory: "8Gi"
+    limits.cpu: "8"
+    limits.memory: "16Gi"
+    pods: "20"

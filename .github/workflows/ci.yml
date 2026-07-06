@@ -23,11 +23,7 @@ on:
   pull_request:
     branches: [stg, uat, prd]
 
-env:
-  # Branch name = tên env (stg/uat/prd) — dùng trong helmfile -e <env>
-  # prd branch → dùng "prod" env vì helmfile dùng tên "prod"
-  HELMFILE_ENV: ${{ github.ref_name == 'prd' && 'prod' || github.ref_name }}
-
+# P1.5: bỏ map branch→env — job helmfile-template render matrix CẢ 3 env
 jobs:
   # ----------------------------------------------------------
   # JOB 1: Lint Helm charts — chạy trên mọi branch
@@ -71,14 +67,19 @@ jobs:
           echo "✓ Manifests valid"
 
   # ----------------------------------------------------------
-  # JOB 3: Render helmfile cho đúng env của branch
-  #   PR to stg  → render "stg" (= dev env)
-  #   PR to uat  → render "uat"
-  #   PR to prd  → render "prod"
+  # JOB 3: Render helmfile — P1.5: matrix CẢ 3 env trên mọi PR/push
+  # Lý do: một thay đổi gotmpl có thể vỡ prod mà không vỡ dev —
+  # phát hiện lúc PR rẻ hơn vô hạn so với lúc promote.
+  # Cần secret SOPS_AGE_KEY (nội dung age keys.txt) để giải mã
+  # environments/secrets/*.yaml — thiếu secret này job sẽ fail.
   # ----------------------------------------------------------
   helmfile-template:
-    name: Helmfile Template (${{ github.ref_name }})
+    name: Helmfile Template (${{ matrix.env }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        env: [dev, uat, prod]
     steps:
       - uses: actions/checkout@v4
 
@@ -86,17 +87,27 @@ jobs:
         with:
           version: "3.17.0"
 
-      - name: Install helmfile
+      - name: Install helmfile + sops + helm-secrets
         run: |
           curl -sSL https://github.com/helmfile/helmfile/releases/download/v0.171.0/helmfile_0.171.0_linux_amd64.tar.gz \
             | tar xz -C /usr/local/bin
+          sudo curl -sSLo /usr/local/bin/sops \
+            https://github.com/getsops/sops/releases/download/v3.9.4/sops-v3.9.4.linux.amd64
+          sudo chmod +x /usr/local/bin/sops
+          helm plugin install https://github.com/jkroepke/helm-secrets
 
-      - name: Add Helm repos
-        run: helmfile -f platform/helmfile.yaml.gotmpl repos 2>&1 | head -20 || true
-
-      - name: Render helmfile (${{ env.HELMFILE_ENV }})
+      - name: Setup age key (giải mã SOPS)
         run: |
-          echo "==> Branch: ${{ github.ref_name }} → env: ${{ env.HELMFILE_ENV }}"
-          helmfile -e ${{ env.HELMFILE_ENV }} -f platform/helmfile.yaml.gotmpl template --skip-deps 2>&1 | tail -10
-          echo "✓ Helmfile template passed"
-        continue-on-error: true
+          mkdir -p ~/.config/sops/age
+          echo "${{ secrets.SOPS_AGE_KEY }}" > ~/.config/sops/age/keys.txt
+
+      # KHÔNG có "|| true": thiếu repo phải làm CI đỏ (P0.1 từng bị che bởi lệnh này)
+      - name: Add Helm repos
+        run: helmfile -f platform/helmfile.yaml.gotmpl repos
+
+      # KHÔNG có continue-on-error: render fail = CI đỏ = không merge được.
+      # Không pipe qua tail để giữ nguyên exit code + full log lỗi.
+      - name: Render helmfile (${{ matrix.env }})
+        run: |
+          helmfile -e ${{ matrix.env }} -f platform/helmfile.yaml.gotmpl template --skip-deps > /dev/null
+          echo "✓ Helmfile template passed (${{ matrix.env }})"

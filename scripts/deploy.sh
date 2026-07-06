@@ -71,13 +71,29 @@ echo -e "${CYAN}  Deploy: env=${ENV}  layer=${LAYER:-ALL}  action=${ACTION}${NC}
 echo -e "${CYAN}=================================================${NC}"
 echo ""
 
-# Đảm bảo đang dùng đúng kubectl context
-EXPECTED_CONTEXT="kind-data-platform"
+# Đảm bảo đang dùng đúng kubectl context — map theo env, KHÔNG hardcode kind cho mọi env
+# dev: auto-switch được (kind local, vô hại)
+# uat/prod: BẮT BUỘC khai báo context qua env var và phải khớp context hiện tại —
+#           không auto-switch, để việc chuyển context là một xác nhận chủ đích của người deploy
+case "${ENV}" in
+  dev)  EXPECTED_CONTEXT="kind-data-platform" ;;
+  uat)  EXPECTED_CONTEXT="${UAT_KUBE_CONTEXT:-}" ;;
+  prod) EXPECTED_CONTEXT="${PROD_KUBE_CONTEXT:-}" ;;
+  *)    error "Env không hợp lệ: ${ENV} (dev | uat | prod)" ;;
+esac
+
 CURRENT_CONTEXT="$(kubectl config current-context 2>/dev/null || echo '')"
-if [[ "${CURRENT_CONTEXT}" != "${EXPECTED_CONTEXT}" ]]; then
-  warn "kubectl context hiện tại: ${CURRENT_CONTEXT}"
-  warn "Đang chuyển sang: ${EXPECTED_CONTEXT}"
-  kubectl config use-context "${EXPECTED_CONTEXT}"
+
+if [[ "${ENV}" == "dev" ]]; then
+  if [[ "${CURRENT_CONTEXT}" != "${EXPECTED_CONTEXT}" ]]; then
+    warn "kubectl context hiện tại: ${CURRENT_CONTEXT}"
+    warn "Đang chuyển sang: ${EXPECTED_CONTEXT}"
+    kubectl config use-context "${EXPECTED_CONTEXT}"
+  fi
+else
+  [[ -n "${EXPECTED_CONTEXT}" ]] || error "Chưa set biến $(echo "${ENV}" | tr '[:lower:]' '[:upper:]')_KUBE_CONTEXT. Ví dụ: ${ENV^^}_KUBE_CONTEXT=my-${ENV}-cluster $0 ${ENV}"
+  [[ "${CURRENT_CONTEXT}" == "${EXPECTED_CONTEXT}" ]] || \
+    error "Context hiện tại '${CURRENT_CONTEXT}' ≠ '${EXPECTED_CONTEXT}'. Hãy tự chuyển context (kubectl config use-context) để xác nhận chủ đích."
 fi
 
 # Chạy helmfile

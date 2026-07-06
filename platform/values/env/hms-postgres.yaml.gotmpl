@@ -22,6 +22,8 @@ primary:
   persistence:
     enabled: true
     size: {{ .Values.hms.postgres.storageSize | default "5Gi" }}
-    {{- if .Values.hms.postgres.storageClass }}
-    storageClass: {{ .Values.hms.postgres.storageClass | quote }}
+    {{- /* get nil-safe: key có thể vắng mặt ở dev/uat (chỉ prod khai báo) */}}
+    {{- $sc := .Values | get "hms.postgres.storageClass" "" }}
+    {{- if $sc }}
+    storageClass: {{ $sc | quote }}
     {{- end }}
