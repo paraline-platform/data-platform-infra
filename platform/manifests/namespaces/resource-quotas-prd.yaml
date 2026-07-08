@@ -1,7 +1,7 @@
 # ResourceQuota — PROD (P1.8)
 # Chính prod mới là nơi 1 Spark job cấu hình sai nuốt cả cluster —
 # quota là chốt chặn cuối. Số dưới đây là ĐIỂM XUẤT PHÁT dựa trên
-# environments/prod.yaml (Kafka 3 brokers 4CPU/8Gi, MinIO distributed 4 pods,
+# environments/prd.yaml (Kafka 3 brokers 4CPU/8Gi, MinIO distributed 4 pods,
 # Spark maxExecutors=8) — HIỆU CHỈNH theo capacity cluster thật trước khi apply.
 # setup.sh tự pick file theo env: ./scripts/setup.sh prod
 

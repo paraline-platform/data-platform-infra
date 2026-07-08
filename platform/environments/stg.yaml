@@ -10,6 +10,6 @@
 # ============================================================
 
 global:
-  env: dev
+  env: stg
   domain: data-platform.local        # Thêm vào /etc/hosts: 127.0.0.1 data-platform.local
   cluster: kind-data-platform

@@ -6,7 +6,7 @@
 # ============================================================
 
 global:
-  env: prod
+  env: prd
   domain: data-platform.company.com
   cluster: prod-k8s-cluster
   ingress:

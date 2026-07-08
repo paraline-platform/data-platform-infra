@@ -3,7 +3,7 @@
 # SETUP.SH — Chạy MỘT LẦN để khởi tạo cluster và foundation
 # =============================================================
 # Dùng: ./scripts/setup.sh [ENV]
-# Ví dụ: ./scripts/setup.sh dev
+# Ví dụ: ./scripts/setup.sh stg
 #
 # Script này làm gì:
 #   1. Kiểm tra các công cụ cần thiết
@@ -18,7 +18,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-ENV="${1:-dev}"
+ENV="${1:-stg}"
 
 # Màu sắc cho output
 GREEN='\033[0;32m'; RED='\033[0;31m'; YELLOW='\033[1;33m'; NC='\033[0m'
@@ -87,7 +87,7 @@ if [[ -f "${LIMITRANGE_FILE}" ]]; then
 fi
 
 # NetworkPolicy baseline (P1.7): default-deny ingress + allow intra-platform.
-# LƯU Ý: kindnet (CNI mặc định của Kind) KHÔNG enforce NetworkPolicy — trên dev
+# LƯU Ý: kindnet (CNI mặc định của Kind) KHÔNG enforce NetworkPolicy — trên stg
 # đây là no-op vô hại; có hiệu lực thật trên cluster dùng Calico/Cilium/cloud CNI.
 kubectl apply -f platform/manifests/network-policies/
 info "NetworkPolicies applied (enforce phụ thuộc CNI)"

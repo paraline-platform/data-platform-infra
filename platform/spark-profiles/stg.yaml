@@ -1,7 +1,7 @@
 # ============================================================
 # SPARK-PROFILES/DEV.YAML — T-shirt sizing cho môi trường DEV
 # ============================================================
-# Tại sao tách file này khỏi environments/dev.yaml?
+# Tại sao tách file này khỏi environments/stg.yaml?
 #   → spark.operator config (resources cho pod operator) thuộc về Helmfile
 #   → spark.profiles (sizing cho jobs) thuộc về scripts/run-spark-job.sh
 #   → Hai concern khác nhau → tách file → rõ ràng hơn
