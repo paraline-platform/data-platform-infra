@@ -113,3 +113,13 @@ env:
   # Trigger với profile: UI → Trigger DAG w/ config → {"spark_profile": "medium"}
   - name: AIRFLOW_VAR_SPARK_PROFILES
     value: {{ .Values.profiles | toJson | quote }}
+
+  # dbt config từ environments/<env>.yaml (block dbt) → DAG 05_dbt đọc var.json.dbt
+  # {schema, threads} theo env — nguồn sự thật DUY NHẤT là env file bên infra.
+  - name: AIRFLOW_VAR_DBT
+    value: {{ .Values.dbt | toJson | quote }}
+
+  # Image dbt (theo env). DAG 05_dbt dùng var.value.dbt_image làm image cho pod.
+  # TODO(P4): pin sha bất biến thay latest-<env> (build-once/promote-by-PR).
+  - name: AIRFLOW_VAR_DBT_IMAGE
+    value: {{ printf "ghcr.io/paraline-platform/dbt:latest-%s" .Values.global.env | quote }}
