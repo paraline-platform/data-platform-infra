@@ -1,12 +1,14 @@
 # ============================================================
-# SPARK-PROFILES/DEV.YAML — T-shirt sizing cho môi trường DEV
+# SPARK-PROFILES/STG.YAML — T-shirt sizing cho môi trường STG
 # ============================================================
 # Tại sao tách file này khỏi environments/stg.yaml?
 #   → spark.operator config (resources cho pod operator) thuộc về Helmfile
-#   → spark.profiles (sizing cho jobs) thuộc về scripts/run-spark-job.sh
+#   → spark.profiles (sizing cho jobs): helmfile nạp vào .Values.profiles →
+#     inject vào Airflow qua AIRFLOW_VAR_SPARK_PROFILES; DAG chọn profile lúc trigger
+#     (consumer DUY NHẤT là Airflow — luồng submit Spark)
 #   → Hai concern khác nhau → tách file → rõ ràng hơn
 #
-# Dev constraints: Kind cluster 3 nodes, mỗi node ~4 CPU / 8Gi RAM
+# Stg constraints: Kind cluster 3 nodes, mỗi node ~4 CPU / 8Gi RAM
 # → small/medium dùng được thoải mái
 # → large/xlarge: deploy được nhưng có thể ảnh hưởng các service khác
 # ============================================================

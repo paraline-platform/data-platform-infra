@@ -1,5 +1,0 @@
-apiVersion: v2
-name: spark-job
-description: Generic Helm chart for deploying SparkApplication CRDs with environment-aware resource profiles
-type: application
-version: 0.1.0
