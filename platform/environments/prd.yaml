@@ -140,7 +140,7 @@ sparkThriftServer:
 
 dbt:
   threads: 4
-  schema: dbt_prod
+  schema: dbt_prd
 
 # --- Observability ---
 monitoring:

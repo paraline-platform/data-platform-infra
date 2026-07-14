@@ -5,7 +5,7 @@
 # file này đè lên sau). Dev vốn là baseline nên file này chỉ còn danh tính env.
 #
 # Để deploy: ./scripts/deploy.sh dev
-# Muốn đổi tham số cho RIÊNG dev: thêm key vào đây (đè defaults).
+# Muốn đổi tham số cho RIÊNG stg: thêm key vào đây (đè defaults).
 # Muốn đổi tham số cho MỌI env: sửa _defaults.yaml.
 # ============================================================
 
@@ -13,3 +13,10 @@ global:
   env: stg
   domain: data-platform.local        # Thêm vào /etc/hosts: 127.0.0.1 data-platform.local
   cluster: kind-data-platform
+
+# dbt config — NGUỒN SỰ THẬT cho schema/threads mỗi env. stg = tài nguyên nhỏ nhất.
+# Hiện dùng bởi processing/run-dbt.sh; sau này dbt lên Airflow thì infra sẽ inject
+# giá trị này qua AIRFLOW_VAR_* (nhân rộng pattern spark_profiles), không qua ConfigMap.
+dbt:
+  threads: 1
+  schema: dbt_stg
