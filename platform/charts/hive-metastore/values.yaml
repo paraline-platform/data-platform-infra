@@ -21,7 +21,7 @@ postgres:
   port: 5432
   database: metastore
   username: hive
-  password: "changeme"            # dev: inline; prod: useExistingSecret
+  password: ""                    # LUÔN inject từ values/env gotmpl (nguồn: SOPS) — không default plaintext
   useExistingSecret: false
   existingSecret: "hms-postgres-credentials"
   secretKey: "password"
@@ -30,7 +30,7 @@ postgres:
 minio:
   endpoint: "http://minio.data-storage.svc.cluster.local:9000"
   accessKey: "admin"
-  secretKey: "minio-dev-password"
+  secretKey: ""                   # LUÔN inject từ values/env gotmpl (nguồn: SOPS) — không default plaintext
   warehouse: "s3a://warehouse/"   # default warehouse path cho Iceberg tables
 
 # JAR versions — khớp với spark-thrift-server để tránh class mismatch

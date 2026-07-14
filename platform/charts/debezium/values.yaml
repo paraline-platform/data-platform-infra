@@ -9,9 +9,9 @@ demoPostgres:
     pullPolicy: IfNotPresent
   database: demodb
   user: postgres
-  password: "postgres-dev-password"
+  password: ""            # LUÔN inject từ values/env gotmpl (nguồn: SOPS) — không default plaintext
   debeziumUser: debezium
-  debeziumPassword: "debezium-dev-password"
+  debeziumPassword: ""    # LUÔN inject từ values/env gotmpl (nguồn: SOPS)
   resources:
     requests: { cpu: "100m", memory: "256Mi" }
     limits:   { cpu: "500m", memory: "512Mi" }

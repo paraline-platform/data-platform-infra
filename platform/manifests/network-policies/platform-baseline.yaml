@@ -1,0 +1,162 @@
+# ============================================================
+# NETWORK POLICIES — baseline cách ly namespace (P1.7)
+# ============================================================
+# Mô hình: mỗi namespace platform = default-deny ingress, sau đó allow:
+#   1. Traffic từ CÙNG namespace (intra-namespace: Kafka brokers, operators...)
+#   2. Traffic từ các namespace platform khác (label platform=data-lakehouse)
+# → Chặn: traffic từ namespace lạ / workload ngoài platform.
+#
+# Giai đoạn 2 (khi có cluster test): siết theo port đích danh
+# (vd: data-modeling chỉ nhận 10000/9083) — xem docs/optimization/02-p1 §P1.7.
+# Không siết port ngay: port-specific mà chưa test sống = tự tạo sự cố.
+#
+# ⚠️ LƯU Ý KIND: CNI mặc định của Kind (kindnet) KHÔNG enforce NetworkPolicy —
+# trên dev/kind các policy này là no-op (vô hại). Chúng có hiệu lực trên
+# cluster có CNI đầy đủ (Calico/Cilium/cloud CNI). Muốn test local:
+# tạo kind cluster với disableDefaultCNI + cài Calico.
+# ============================================================
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: data-ingestion
+  labels: { platform: data-lakehouse }
+spec:
+  podSelector: {}
+  policyTypes: [Ingress]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-platform-and-same-ns
+  namespace: data-ingestion
+  labels: { platform: data-lakehouse }
+spec:
+  podSelector: {}
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels: { platform: data-lakehouse }
+        - podSelector: {}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: data-storage
+  labels: { platform: data-lakehouse }
+spec:
+  podSelector: {}
+  policyTypes: [Ingress]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-platform-and-same-ns
+  namespace: data-storage
+  labels: { platform: data-lakehouse }
+spec:
+  podSelector: {}
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels: { platform: data-lakehouse }
+        - podSelector: {}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: data-processing
+  labels: { platform: data-lakehouse }
+spec:
+  podSelector: {}
+  policyTypes: [Ingress]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-platform-and-same-ns
+  namespace: data-processing
+  labels: { platform: data-lakehouse }
+spec:
+  podSelector: {}
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels: { platform: data-lakehouse }
+        - podSelector: {}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: data-modeling
+  labels: { platform: data-lakehouse }
+spec:
+  podSelector: {}
+  policyTypes: [Ingress]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-platform-and-same-ns
+  namespace: data-modeling
+  labels: { platform: data-lakehouse }
+spec:
+  podSelector: {}
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels: { platform: data-lakehouse }
+        - podSelector: {}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: data-orchestration
+  labels: { platform: data-lakehouse }
+spec:
+  podSelector: {}
+  policyTypes: [Ingress]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-platform-and-same-ns
+  namespace: data-orchestration
+  labels: { platform: data-lakehouse }
+spec:
+  podSelector: {}
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels: { platform: data-lakehouse }
+        - podSelector: {}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: data-governance
+  labels: { platform: data-lakehouse }
+spec:
+  podSelector: {}
+  policyTypes: [Ingress]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-platform-and-same-ns
+  namespace: data-governance
+  labels: { platform: data-lakehouse }
+spec:
+  podSelector: {}
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels: { platform: data-lakehouse }
+        - podSelector: {}

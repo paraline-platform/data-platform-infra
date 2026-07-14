@@ -1,0 +1,8 @@
+# ============================================================
+# GITATTRIBUTES
+# ============================================================
+# SOPS mã hoá kèm MAC tính trên TOÀN BỘ byte của file. Nếu Git đổi line-ending
+# (LF↔CRLF do core.autocrlf=true trên Windows) thì byte thay đổi → MAC sai →
+# `sops`/helm-secrets KHÔNG decrypt được sau khi clone/checkout.
+# `-text` = coi như binary, KHÔNG đổi line-ending → giữ nguyên byte → MAC luôn đúng.
+platform/environments/secrets/*.yaml -text

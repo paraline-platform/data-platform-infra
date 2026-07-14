@@ -3,10 +3,10 @@
 # DEPLOY.SH — Deploy hoặc upgrade platform (chạy nhiều lần được)
 # =============================================================
 # Dùng:
-#   ./scripts/deploy.sh dev                  # Deploy toàn bộ platform cho dev
-#   ./scripts/deploy.sh dev 02-storage       # Chỉ deploy layer 02 (MinIO)
-#   ./scripts/deploy.sh dev 01-ingestion     # Chỉ deploy layer 01 (Kafka, NiFi)
-#   ./scripts/deploy.sh prod                 # Deploy toàn bộ cho prod
+#   ./scripts/deploy.sh stg                  # Deploy toàn bộ platform cho stg
+#   ./scripts/deploy.sh stg 02-storage       # Chỉ deploy layer 02 (MinIO)
+#   ./scripts/deploy.sh stg 01-ingestion     # Chỉ deploy layer 01 (Kafka, NiFi)
+#   ./scripts/deploy.sh prd                  # Deploy toàn bộ cho prd
 #
 # Layer labels (dùng để filter):
 #   00-infra        Ingress NGINX
@@ -41,7 +41,7 @@ error()   { echo -e "${RED}  ✗${NC} $1"; exit 1; }
 # Validate ENV
 if [[ -z "${ENV}" ]]; then
   echo "Cách dùng: $0 <env> [layer] [action]"
-  echo "  env:    dev | uat | prod"
+  echo "  env:    stg | uat | prd"
   echo "  layer:  00-infra | 02-storage | 01-ingestion | ..."
   echo "  action: diff | sync | destroy (mặc định: sync)"
   exit 1
@@ -71,13 +71,29 @@ echo -e "${CYAN}  Deploy: env=${ENV}  layer=${LAYER:-ALL}  action=${ACTION}${NC}
 echo -e "${CYAN}=================================================${NC}"
 echo ""
 
-# Đảm bảo đang dùng đúng kubectl context
-EXPECTED_CONTEXT="kind-data-platform"
+# Đảm bảo đang dùng đúng kubectl context — map theo env, KHÔNG hardcode kind cho mọi env
+# stg: auto-switch được (kind local, vô hại)
+# uat/prd: BẮT BUỘC khai báo context qua env var và phải khớp context hiện tại —
+#          không auto-switch, để việc chuyển context là một xác nhận chủ đích của người deploy
+case "${ENV}" in
+  stg)  EXPECTED_CONTEXT="kind-data-platform" ;;
+  uat)  EXPECTED_CONTEXT="${UAT_KUBE_CONTEXT:-}" ;;
+  prd)  EXPECTED_CONTEXT="${PRD_KUBE_CONTEXT:-}" ;;
+  *)    error "Env không hợp lệ: ${ENV} (stg | uat | prd)" ;;
+esac
+
 CURRENT_CONTEXT="$(kubectl config current-context 2>/dev/null || echo '')"
-if [[ "${CURRENT_CONTEXT}" != "${EXPECTED_CONTEXT}" ]]; then
-  warn "kubectl context hiện tại: ${CURRENT_CONTEXT}"
-  warn "Đang chuyển sang: ${EXPECTED_CONTEXT}"
-  kubectl config use-context "${EXPECTED_CONTEXT}"
+
+if [[ "${ENV}" == "stg" ]]; then
+  if [[ "${CURRENT_CONTEXT}" != "${EXPECTED_CONTEXT}" ]]; then
+    warn "kubectl context hiện tại: ${CURRENT_CONTEXT}"
+    warn "Đang chuyển sang: ${EXPECTED_CONTEXT}"
+    kubectl config use-context "${EXPECTED_CONTEXT}"
+  fi
+else
+  [[ -n "${EXPECTED_CONTEXT}" ]] || error "Chưa set biến $(echo "${ENV}" | tr '[:lower:]' '[:upper:]')_KUBE_CONTEXT. Ví dụ: ${ENV^^}_KUBE_CONTEXT=my-${ENV}-cluster $0 ${ENV}"
+  [[ "${CURRENT_CONTEXT}" == "${EXPECTED_CONTEXT}" ]] || \
+    error "Context hiện tại '${CURRENT_CONTEXT}' ≠ '${EXPECTED_CONTEXT}'. Hãy tự chuyển context (kubectl config use-context) để xác nhận chủ đích."
 fi
 
 # Chạy helmfile
@@ -105,7 +121,7 @@ if [[ "${ACTION}" == "sync" ]]; then
       | awk '{printf "  %-50s %s\n", $1, $2}' || true
   fi
   echo ""
-  echo "Access MinIO Console (dev):"
+  echo "Access MinIO Console (${ENV}):"
   echo "  kubectl port-forward -n data-storage svc/minio 9001:9001"
-  echo "  → http://localhost:9001  (admin / minio-dev-password)"
+  echo "  → http://localhost:9001  (user: admin | password: xem environments/secrets/${ENV}.yaml → minio.rootPassword)"
 fi

@@ -14,6 +14,22 @@
 *.env.local
 secrets/
 
+# NGOẠI LỆ: secrets ĐÃ MÃ HOÁ bằng SOPS được PHÉP commit (encrypted-at-rest → an toàn;
+# CI decrypt bằng SOPS_AGE_KEY, máy mới clone có sẵn secrets). Dùng ALLOWLIST tường minh:
+# CHỈ đúng các file env đã biết mới được track. Mọi file khác (bản giải mã tạm, .dec.yaml,
+# env mới chưa khai báo...) vẫn bị chặn mặc định → phải thêm dòng có chủ đích khi cần.
+!platform/environments/secrets/
+platform/environments/secrets/**
+!platform/environments/secrets/stg.yaml
+!platform/environments/secrets/uat.yaml
+!platform/environments/secrets/prd.yaml
+
+# Private key (age) — TUYỆT ĐỐI KHÔNG commit (lộ = mọi secret bị giải mã được)
+*.agekey
+*.age
+keys.txt
+age-key*.txt
+
 # Scratch/workbench files trong docs/scratch/ — không phải config chính thức
 # docs/notes/ vẫn được track (note quan trọng cần commit)
 docs/scratch/notes.txt

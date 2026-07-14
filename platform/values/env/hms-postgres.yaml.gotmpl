@@ -1,7 +1,7 @@
 # ============================================================
 # ENV VALUES — PostgreSQL (HMS backend)
 # ============================================================
-# Đọc từ .Values (environments/dev.yaml, uat.yaml, prod.yaml)
+# Đọc từ .Values (environments/stg.yaml, uat.yaml, prod.yaml)
 # Override values/base/hms-postgres.yaml
 
 {{- if .Values.hms.postgres.useExistingSecret }}
@@ -22,6 +22,8 @@ primary:
   persistence:
     enabled: true
     size: {{ .Values.hms.postgres.storageSize | default "5Gi" }}
-    {{- if .Values.hms.postgres.storageClass }}
-    storageClass: {{ .Values.hms.postgres.storageClass | quote }}
+    {{- /* get nil-safe: key có thể vắng mặt ở dev/uat (chỉ prod khai báo) */}}
+    {{- $sc := .Values | get "hms.postgres.storageClass" "" }}
+    {{- if $sc }}
+    storageClass: {{ $sc | quote }}
     {{- end }}

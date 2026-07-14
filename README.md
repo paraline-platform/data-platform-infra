@@ -6,8 +6,8 @@ Kubernetes infrastructure for the Data Lakehouse Platform — Helm charts, Helmf
 
 ```
 platform/
-  charts/          # Custom Helm charts (debezium, kafka-cluster, spark-job, ...)
-  environments/    # Per-env values: dev / uat / prod
+  charts/          # Custom Helm charts (debezium, kafka-cluster, hive-metastore, spark-thrift-server)
+  environments/    # Per-env values: stg / uat / prd
   manifests/       # K8s raw manifests (namespaces, RBAC, storage classes)
   spark-profiles/  # Spark resource profiles per env
   values/          # Helm values: base/ + env/ overrides

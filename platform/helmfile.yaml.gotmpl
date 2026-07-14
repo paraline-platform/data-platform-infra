@@ -7,10 +7,10 @@
 #   environments/*.yaml  →  .Values  →  values/env/*.gotmpl  →  Helm chart
 #
 # Cách dùng (từ thư mục platform/):
-#   Deploy toàn bộ:      ./scripts/deploy.sh dev
-#   Deploy 1 layer:      ./scripts/deploy.sh dev 02-storage
-#   Xem diff:            ./scripts/deploy.sh dev "" diff
-#   Xóa toàn bộ:         ./scripts/deploy.sh dev "" destroy
+#   Deploy toàn bộ:      ./scripts/deploy.sh stg
+#   Deploy 1 layer:      ./scripts/deploy.sh stg 02-storage
+#   Xem diff:            ./scripts/deploy.sh stg "" diff
+#   Xóa toàn bộ:         ./scripts/deploy.sh stg "" destroy
 #
 # Layer model:
 #   00-infra        Ingress controller
@@ -24,19 +24,32 @@
 # ============================================================
 
 # Document 1: environments (PHẢI tách riêng bằng ---)
+# P1.4: _defaults.yaml load TRƯỚC (baseline đầy đủ mọi key mà gotmpl tham chiếu),
+# env file merge đè lên sau → env file chỉ chứa phần KHÁC defaults.
+# P1: secrets/ (SOPS-encrypted) load SAU CÙNG — đè password rỗng trong defaults.
+# Cần: helm plugin helm-secrets + age key tại $SOPS_AGE_KEY_FILE (CI: secret SOPS_AGE_KEY)
 environments:
-  dev:
+  stg:
     values:
-      - environments/dev.yaml
-      - spark-profiles/dev.yaml     # → .Values.profiles available in all gotmpl templates
+      - environments/_defaults.yaml
+      - environments/stg.yaml
+      - spark-profiles/stg.yaml     # → .Values.profiles available in all gotmpl templates
+    secrets:
+      - environments/secrets/stg.yaml
   uat:
     values:
+      - environments/_defaults.yaml
       - environments/uat.yaml
-      - spark-profiles/prod.yaml    # uat dùng prod profiles (resource đủ lớn)
-  prod:
+      - spark-profiles/prd.yaml     # uat dùng prd profiles (resource đủ lớn)
+    secrets:
+      - environments/secrets/uat.yaml
+  prd:
     values:
-      - environments/prod.yaml
-      - spark-profiles/prod.yaml
+      - environments/_defaults.yaml
+      - environments/prd.yaml
+      - spark-profiles/prd.yaml
+    secrets:
+      - environments/secrets/prd.yaml
 
 ---
 # Document 2: repositories + helmDefaults + releases
@@ -60,6 +73,8 @@ repositories:
     url: https://grafana.github.io/helm-charts
   - name: ingress-nginx
     url: https://kubernetes.github.io/ingress-nginx
+  - name: minio
+    url: https://charts.min.io/
 
 helmDefaults:
   wait: true
@@ -73,15 +88,18 @@ releases:
   # LAYER 00: INFRASTRUCTURE — Ingress Controller
   # ==========================================================
   # TODO Phase: tạo values/base/ingress-nginx.yaml rồi bật lại
-  # dev  → global.ingress.enabled: false → bỏ qua, dùng NodePort
-  # prod → global.ingress.enabled: true  → deploy ingress-nginx
+  # stg  → global.ingress.enabled: false → bỏ qua, dùng NodePort
+  # prd  → global.ingress.enabled: true  → deploy ingress-nginx
   # - name: ingress-nginx
   #   namespace: data-infra
   #   chart: ingress-nginx/ingress-nginx
   #   version: "4.10.0"
   #   labels:
   #     layer: "00-infra"
-  #   installed: {{ .Values.global.ingress.enabled }}
+  #   NOTE: file .gotmpl được render TRƯỚC khi parse YAML nên dấu # KHÔNG bảo vệ
+  #   được biểu thức {{`{{ }}`}} — phải escape khi để trong comment.
+  #   Khi bật lại release, dùng dạng nil-safe để env thiếu key không làm vỡ render:
+  #   installed: {{`{{ .Values | get "global.ingress.enabled" false }}`}}
   #   values:
   #     - values/base/ingress-nginx.yaml
 
@@ -185,7 +203,7 @@ releases:
   # LAYER 04: LAKEHOUSE — PostgreSQL (HMS backend)
   # ==========================================================
   # Database backend cho Hive Metastore: lưu catalog metadata (bảng, schema,
-  # partition, column stats). Tất cả env dùng Postgres (dev: nhỏ, prod: lớn).
+  # partition, column stats). Tất cả env dùng Postgres (stg: nhỏ, prd: lớn).
   # HMS bắt buộc cần RDBMS — không thể chạy hoàn toàn in-memory như Nessie.
   - name: hms-postgres
     namespace: data-modeling
@@ -226,8 +244,8 @@ releases:
   # ==========================================================
   # HiveServer2-compatible Spark SQL server, dbt kết nối qua thrift:10000
   # Catalog: lakehouse (Iceberg HiveCatalog → HMS thrift:9083 → Postgres)
-  # dev:  local[2] — 1 pod, không executor
-  # uat/prod: k8s:// — driver pod + executor pods (Dynamic Allocation)
+  # stg:  local[2] — 1 pod, không executor
+  # uat/prd: k8s:// — driver pod + executor pods (Dynamic Allocation)
   - name: spark-thrift-server
     namespace: data-modeling
     chart: ./charts/spark-thrift-server

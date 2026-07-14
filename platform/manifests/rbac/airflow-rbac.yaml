@@ -38,12 +38,17 @@ rules:
     verbs: ["get", "list", "watch"]
 
 ---
-# --- ClusterRoleBinding: gán ClusterRole cho airflow ServiceAccount ---
-# ServiceAccount "airflow" được tạo bởi chart trong data-orchestration
+# --- RoleBinding (namespaced) — P1.6: least privilege ---
+# TRƯỚC ĐÂY là ClusterRoleBinding → Airflow CRUD được SparkApplication và đọc
+# pods/logs trên MỌI namespace. DAG là code tuỳ ý do dev push — nếu Airflow bị
+# compromise, phạm vi thiệt hại phải bị chặn ở đúng 1 namespace nó cần.
+# RoleBinding tham chiếu ClusterRole là hợp lệ: ClusterRole = ĐỊNH NGHĨA quyền
+# (tái sử dụng), RoleBinding = PHẠM VI hiệu lực (chỉ data-processing).
 apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
+kind: RoleBinding
 metadata:
   name: airflow-spark-operator
+  namespace: data-processing        # quyền CHỈ có hiệu lực ở namespace này
   labels:
     platform: data-lakehouse
     component: airflow

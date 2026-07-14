@@ -1,7 +1,7 @@
 # ============================================================
-# SPARK-PROFILES/PROD.YAML — T-shirt sizing cho môi trường PROD
+# SPARK-PROFILES/PRD.YAML — T-shirt sizing cho môi trường PRD
 # ============================================================
-# Prod: multi-node cluster với nhiều tài nguyên hơn
+# Prd: multi-node cluster với nhiều tài nguyên hơn
 # → instances cao hơn để tận dụng parallelism
 # → memory lớn hơn để xử lý dataset thực tế
 # ============================================================
